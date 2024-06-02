@@ -1,0 +1,597 @@
+
+library(dplyr)
+library(Seurat)
+library(patchwork)
+library(Matrix)
+library(ggplot2)
+library(tidyverse)
+library(stringr)
+library(sctransform)
+library(harmony)
+library(glmGamPoi)
+library(RColorBrewer)
+
+
+
+Syngeneic Mouse Lung Transplant
+WT2HR1.data <- Read10X(data.dir = "./WT2HR/WT2HR1")
+WT2HR2.data <- Read10X(data.dir = "./WT2HR/WT2HR2")
+WT2HRS.data <- Read10X(data.dir = "./WT2HR/WT2HRS")
+WT3D1.data <- Read10X(data.dir = "./WT3D/WT3D1")
+WT3D2.data <- Read10X(data.dir = "./WT3D/WT3D2")
+WT3DS.data <- Read10X(data.dir = "./WT3D/WT3DS")
+WT7D1.data <- Read10X(data.dir = "./WT7D/WT7D1")
+WT7D2.data <- Read10X(data.dir = "./WT7D/WT7D2")
+WT7DS.data <- Read10X(data.dir = "./WT7D/WT7DS")
+WT30D1.data <- Read10X(data.dir = "./WT30D/WT30D1")
+WT30D2.data <- Read10X(data.dir = "./WT30D/WT30D2")
+WT30DS.data <- Read10X(data.dir = "./WT30D/WT30DS")
+CTRL1.data <- Read10X(data.dir = "./filtered_feature_bc_matrix")
+CTRLS.data <- Read10X(data.dir = "./filtered_feature_bc_matrix")
+control.data = read.table(file="./GSE145998_Ctrl_mouse_Scell1.dge.txt.gz", header=TRUE, row.names =1, sep = ",", as.is = TRUE)
+
+WT2HR1 <- CreateSeuratObject(counts = WT2HR1.data$'Gene Expression')
+WT2HR2 <- CreateSeuratObject(counts = WT2HR2.data$'Gene Expression')
+WT2HRS <- CreateSeuratObject(counts = WT2HRS.data$'Gene Expression')
+WT3D1 <- CreateSeuratObject(counts = WT3D1.data$'Gene Expression')
+WT3D2 <- CreateSeuratObject(counts = WT3D2.data$'Gene Expression')
+WT3DS <- CreateSeuratObject(counts = WT3DS.data$'Gene Expression')
+WT7D1 <- CreateSeuratObject(counts = WT7D1.data$'Gene Expression')
+WT7D2 <- CreateSeuratObject(counts = WT7D2.data$'Gene Expression')
+WT7DS <- CreateSeuratObject(counts = WT7DS.data$'Gene Expression')
+WT30D1 <- CreateSeuratObject(counts = WT30D1.data)
+WT30D2 <- CreateSeuratObject(counts = WT30D2.data)
+WT30DS <- CreateSeuratObject(counts = WT30DS.data)
+CTRL1 <- CreateSeuratObject(counts = CTRL1.data)
+CTRLS <- CreateSeuratObject(counts = CTRLS.data)
+control <- CreateSeuratObject(counts = control.data)
+
+WT2HR1$sample <- "WT2HR1"
+WT2HR2$sample <- "WT2HR2"
+WT2HRS$sample <- "WT2HRS"
+WT3D1$sample <- "WT3D1"
+WT3D2$sample <- "WT3D2"
+WT3DS$sample <- "WT3DS"
+WT7D1$sample <- "WT7D1"
+WT7D2$sample <- "WT7D2"
+WT7DS$sample <- "WT7DS"
+WT30D1$sample <- "WT30D1"
+WT30D2$sample <- "WT30D2"
+WT30DS$sample <- "WT30DS"
+CTRL1$sample <- "CTRL1"
+CTRLS$sample <- "CTRLS"
+control$sample <- "CTRL"
+
+WT2HR1[["percent.mt"]] <- PercentageFeatureSet(WT2HR1, pattern = "^mt-")
+WT2HR2[["percent.mt"]] <- PercentageFeatureSet(WT2HR2, pattern = "^mt-")
+WT2HRS[["percent.mt"]] <- PercentageFeatureSet(WT2HRS, pattern = "^mt-")
+WT3D1[["percent.mt"]] <- PercentageFeatureSet(WT3D1, pattern = "^mt-")
+WT3D2[["percent.mt"]] <- PercentageFeatureSet(WT3D2, pattern = "^mt-")
+WT3DS[["percent.mt"]] <- PercentageFeatureSet(WT3DS, pattern = "^mt-")
+WT7D1[["percent.mt"]] <- PercentageFeatureSet(WT7D1, pattern = "^mt-")
+WT7D2[["percent.mt"]] <- PercentageFeatureSet(WT7D2, pattern = "^mt-")
+WT7DS[["percent.mt"]] <- PercentageFeatureSet(WT7DS, pattern = "^mt-")
+WT30D1[["percent.mt"]] <- PercentageFeatureSet(WT30D1, pattern = "^mt-")
+WT30D2[["percent.mt"]] <- PercentageFeatureSet(WT30D2, pattern = "^mt-")
+WT30DS[["percent.mt"]] <- PercentageFeatureSet(WT30DS, pattern = "^mt-")
+CTRL1[["percent.mt"]] <- PercentageFeatureSet(CTRL1, pattern = "^mt-")
+CTRLS[["percent.mt"]] <- PercentageFeatureSet(CTRLS, pattern = "^mt-")
+control[["percent.mt"]] <- PercentageFeatureSet(control, pattern = "^mt-")
+VlnPlot(WT2HR1, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(WT2HR2, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(WT2HRS, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(WT3D1, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(WT3D2, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(WT3DS, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(WT7D1, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(WT7D2, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(WT7DS, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(WT30D1, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(WT30D2, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(WT30DS, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(CTRL1, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(CTRLS, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(control, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+WT2HR1 <- subset(WT2HR1, subset = nCount_RNA > 500 & nCount_RNA < 4000 & percent.mt < 5)
+WT2HR2 <- subset(WT2HR2, subset = nCount_RNA > 500 & nCount_RNA < 6000 & percent.mt < 5)
+WT2HRS <- subset(WT2HRS, subset = nCount_RNA > 500 & nCount_RNA < 6000 & percent.mt < 5)
+WT3D1 <- subset(WT3D1, subset = nCount_RNA > 500 & nCount_RNA < 30000 & percent.mt < 5)
+WT3D2 <- subset(WT3D2, subset = nCount_RNA > 500 & nCount_RNA < 30000 & percent.mt < 5)
+WT3DS <- subset(WT3DS, subset = nCount_RNA > 500 & nCount_RNA < 40000 & percent.mt < 5)
+WT7D1 <- subset(WT7D1, subset = nCount_RNA > 500 & nCount_RNA < 10000 & percent.mt < 5)
+WT7D2 <- subset(WT7D2, subset = nCount_RNA > 500 & nCount_RNA < 9000 & percent.mt < 5)
+WT7DS <- subset(WT7DS, subset = nCount_RNA > 500 & nCount_RNA < 10000 & percent.mt < 5)
+WT30D1 <- subset(WT30D1, subset = nCount_RNA > 500 & nCount_RNA < 20000 & percent.mt < 5)
+WT30D2 <- subset(WT30D2, subset = nCount_RNA > 500 & nCount_RNA < 20000 & percent.mt < 5)
+WT30DS <- subset(WT30DS, subset = nCount_RNA > 500 & nCount_RNA < 20000 & percent.mt < 5)
+CTRL1 <- subset(CTRL1, subset = nCount_RNA > 500 & nCount_RNA < 50000 & percent.mt < 5)
+CTRLS <- subset(CTRLS, subset = nCount_RNA > 500 & nCount_RNA < 50000 & percent.mt < 5)
+control <- subset(control, subset = nCount_RNA > 500 & nCount_RNA < 7500 & percent.mt < 5)
+sample <- merge(WT2HR1, y = c(WT2HR2, WT2HRS, WT3D1, WT3D2, WT3DS, WT7D1, WT7D2, WT7DS, WT30D1, WT30D2, WT30DS, CTRL1, CTRLS, control))
+sample <- SCTransform(sample, method = "glmGamPoi", return.only.var.genes=FALSE)
+DefaultAssay(sample) <- 'RNA'
+sample <- SCTransform(sample, vars.to.regress = ("percent.mt"), method = "glmGamPoi", return.only.var.genes=FALSE)
+sample <- RunPCA(sample, features = VariableFeatures(object = sample), npcs=100, verbose=TRUE)
+sample <- RunHarmony(object = sample, assay.use = "SCT", reduction = "pca", dims.use = 1:50, group.by.vars = "sample", plot_convergence = TRUE)
+sample <- RunUMAP(object = sample, assay = "SCT", reduction = "harmony", dims = 1:50)
+sample <- FindNeighbors(object = sample, assay = "SCT", reduction = "harmony", dims = 1:50)
+iri <- FindClusters(sample, graph.name = "SCT_snn", algorithm = 3, resolution = c(0.1,0.2,0.3,0.4,0.5), verbose = FALSE)
+
+#Stroma Feature Plot
+vars <- c("Upk3b", "Msln", "Wt1") #Mesothelium
+c("Trpc6", "Higd1b", "Vtn") #Pericyte
+c("Acta2", "Lgr5", "Cta2", "Des", "Myh11") #Smooth muscle
+c("Lum", "Pdgfra", "Fbln1", "Col13a1", "Col1a1") #Fibroblast
+c("Serpinf1", "Pi16", "Entpd2") #Adventitial Fibroblast
+c("Fgfr4", "Slc7a10", "Slc38a5") #Alveolar Fibroblast
+c("Postn", "Cthrc1", "Col3a1") #Myofibroblast
+c<-FeaturePlot(iri, features = "vars", order = T, min.cutoff = "q1",max.cutoff = "q99")
+c+scale_color_gradient2(low = "#C4C4C4", mid = "#C4C4C4", high = "#ec679c", midpoint = 1, oob=scales::squish, limits=c(0,5))
+
+#New Fibroblast subcluster
+fb.cells<-subset(iri, idents = c("6", "23", "25"))
+Idents(fb.cells) <- "sample"
+DefaultAssay(fb.cells) <- "RNA"
+fb.cells <- NormalizeData(fb.cells)
+all.genes <- rownames(fb.cells)
+fb.cells <- ScaleData(fb.cells, features = all.genes)
+fb.cells <- FindVariableFeatures(fb.cells, selection.method = "vst", nfeatures = 2000)
+fb.cells <- RunPCA(fb.cells, features = VariableFeatures(object = fb.cells))
+fb.cells <- FindNeighbors(fb.cells, dims = 1:15)
+fb.cells <- FindClusters(fb.cells, resolution = c(0.2, 0.4, 0.5, 0.8, 1.0))
+fb.cells <- RunUMAP(fb.cells, dims = 1:15)
+DefaultAssay(fb.cells) <- "RNA"
+fb.cells <- RunHarmony(object = fb.cells, assay.use = "RNA", reduction = "pca", dims.use = 1:50, group.by.vars = "sample", plot_convergence = TRUE)
+fb.cells <- RunUMAP(object = fb.cells, assay = "RNA", reduction = "harmony", dims = 1:15)
+fb.cells <- FindNeighbors(object = fb.cells, assay = "RNA", reduction = "harmony", dims = 1:15)
+fb.cells <- FindClusters(fb.cells, graph.name = "RNA_snn", algorithm = 3, resolution = c(0.1,0.2,0.3,0.4,0.5), verbose = FALSE)
+Idents(fb.cells)<-"RNA_snn_res.0.5"
+fb.markers<- FindAllMarkers(fb.cells, only.pos = TRUE, min.pct = 0.5, logfc.threshold = 0.5)
+#Exclude contaminants (cluster 4- Endothelial, cluster 10- macrophages, cluster 15- AT2)
+fb.subset<-subset(fb.cells, idents = c("0", "1", "2", "3", "5", "6", "7", "8", "9", "11", "12", "13", "14"))
+#Recluster
+fun <- function(x) {
+  if (x == "0") {"0"} 
+  else if (x == "1") {"1"}
+  else if (x == "2") {"2"}
+  else if (x == "3") {"3"}
+  else if (x == "5") {"4"}
+  else if (x == "6") {"5"}
+  else if (x == "7") {"6"}
+  else if (x == "8") {"7"}
+  else if (x == "9") {"8"}
+  else if (x == "11") {"9"}
+  else if (x == "12") {"10"}
+  else if (x == "13") {"11"}
+  else if (x == "14") {"12"}}
+fb.subset$recluster <- mapply(fun, fb.subset$RNA_snn_res.0.5)
+fun <- function(x) {
+  if (x == "0") {"Alveolar FB"} 
+  else if (x == "1") {"Pericyte"}
+  else if (x == "2") {"Adventitial FB"}
+  else if (x == "3") {"Mesothelium"}
+  else if (x == "4") {"SMC"}
+  else if (x == "5") {"Mesothelium"}
+  else if (x == "6") {"Adventitial FB"}
+  else if (x == "7") {"Alveolar FB"}
+  else if (x == "8") {"Adventitial FB"}
+  else if (x == "9") {"Mesothelium"}
+  else if (x == "10") {"Mesothelium"}
+  else if (x == "11") {"Mesothelium"}
+  else if (x == "12") {"Alveolar FB"}}
+fb.subset$simple <- mapply(fun, fb.subset$recluster)
+#Final fb.subset UMAP
+c <- DimPlot(fb.subset, group.by = 'simple', label = FALSE, pt.size = 1)  
+cols <- c("#2dafe5", "#8e8abe", "#9eba86", "#db71a9", "#f0885c")
+c + scale_color_manual(values = cols)
+#Fibroblast Z score Plots
+expdata <- GetAssayData(fb.subset)
+Pop1 <- c("Upk3b", "Msln", "Lrrn4", "Wt1") #Mesothelium
+pops<-list(Pop1)
+z_scores<-NULL
+for (i in 1:length(pops)) {
+  genes <- pops[[i]]
+  zz <- which(tolower(rownames(expdata)) %in% tolower(genes))
+  av <- numeric(ncol(expdata))
+  geneExp <- as.matrix(expdata[zz, ])
+  geneExp <- t(scale(t(geneExp)))
+  geneExp[is.nan(geneExp)] <- 0
+  z_scores <- rbind(z_scores,(av + colSums(geneExp) / length(zz)))}
+fb.subset@meta.data$pop_z<-z_scores[1,]
+FeaturePlot(object=fb.subset, features = "pop_z",pt.size=.3, reduction = "umap") + scale_color_gradientn(colors=c("#cccccc","#e8acc5","#f824ae","#857ed5","#f26007"), oob=scales::squish, limits=c(0,1.5))+ theme(axis.title = element_blank())+ theme(axis.text.x = element_blank(), axis.text.y = element_blank(), axis.ticks = element_blank())+
+  theme(text = element_text(family = "Helvetica"))+ggtitle("Mesothelial")+geom_line(data = df_density0, aes(colour = "Target = 0")) +
+fun <- function(x) {
+  if (x == "0") {"0_Alveolar FB"} 
+  else if (x == "1") {"1_Mesothelium"}
+  else if (x == "2") {"0_Alveolar FB"}
+  else if (x == "3") {"2_Pericyte"}
+  else if (x == "4") {"1_Mesothelium"}
+  else if (x == "5") {"0_Alveolar FB"}
+  else if (x == "6") {"3_Smooth Muscle"}
+  else if (x == "7") {"4_Adventitial FB"}
+  else if (x == "8") {"4_Adventitial FB"}
+  else if (x == "9") {"0_Alveolar FB"}
+  else if (x == "10") {"3_Smooth Muscle"}
+  else if (x == "11") {"1_Mesothelium"}}
+fb.subset$celltype <- mapply(fun, fb.subset$SCT_snn_res.0.5)
+fun <- function(x) {
+  if (x == "0") {"Fibroblast"} 
+  else if (x == "1") {"Mesothelium"}
+  else if (x == "2") {"Fibroblast"}
+  else if (x == "3") {"Pericyte"}
+  else if (x == "4") {"Mesothelium"}
+  else if (x == "5") {"Fibroblast"}
+  else if (x == "6") {"Smooth Muscle"}
+  else if (x == "7") {"Fibroblast"}
+  else if (x == "8") {"Fibroblast"}
+  else if (x == "9") {"Fibroblast"}
+  else if (x == "10") {"Smooth Muscle"}
+  else if (x == "11") {"Mesothelium"}}
+fb.subset$celltype2 <- mapply(fun, fb.subset$SCT_snn_res.0.5)
+fun <- function(x) {
+  if (x == "CTRL") {"Healthy"} 
+  else if (x == "WT2HR") {"Early"}
+  else if (x == "WT3D") {"Early"}
+  else if (x == "WT7D") {"Early"}
+  else if (x == "WT30D") {"Late"}}
+fb.subset$time <- mapply(fun, fb.subset$day)
+Idents(fb.subset)<-"celltype"
+c<-DimPlot(fb.subset)
+c+scale_color_manual(values = c('#FF583F', '#10C4C7', '#FF32FC', '#5C7BE1', '#5DBA00'))
+c<-DimPlot(fb.subset, group.by = "time")
+c+scale_color_manual(values = c('#efbcd5', '#A37FD8', '#3a0ca3'))
+c<-VlnPlot(fb.subset, features = c("Has1"), split.by = "time", pt.size = 0, sort = FALSE)
+c+scale_fill_manual(values = c('#A37FD8', '#efbcd5', '#3a0ca3'))
+Idents(fb.subset)<-"time"
+healthy<-subset(fb.subset, idents = "Healthy")
+early<-subset(fb.subset, idents = "Early")
+late<-subset(fb.subset, idents = "Late")
+fun <- function(x) {
+  if (x == "0_Alveolar FB") {"3_AlvFB"} 
+  else if (x == "1_Mesothelium") {"1_Meso"}
+  else if (x == "2_Pericyte") {"4_Peri"}
+  else if (x == "3_Smooth Muscle") {"0_SMC"}
+  else if (x == "4_Adventitial FB") {"2_AdvFB"}}
+fb.subset$celltype3 <- mapply(fun, fb.subset$celltype)
+Idents(fb.subset)<-"time"
+healthy<-subset(fb.subset, idents = "Healthy")
+early<-subset(fb.subset, idents = "Early")
+late<-subset(fb.subset, idents = "Late")
+c<-VlnPlot(healthy, features = c("Has1"), group.by = "celltype3", pt.size = 0, sort = FALSE, y.max = 3)
+c+scale_fill_manual(values = c('#efbcd5', '#efbcd5', '#efbcd5', '#efbcd5', '#efbcd5'))
+c<-VlnPlot(early, features = c("Has1"), group.by = "celltype3", pt.size = 0, sort = FALSE, y.max = 3)
+c+scale_fill_manual(values = c('#A37FD8', '#A37FD8', '#A37FD8', '#A37FD8', '#A37FD8'))
+c<-VlnPlot(late, features = c("Has1"), group.by = "celltype3", pt.size = 0, sort = FALSE, y.max = 3)
+c+scale_fill_manual(values = c('#3a0ca3', '#3a0ca3', '#3a0ca3', '#3a0ca3', '#3a0ca3'))
+DotPlot(object=fb.subset, features = c("Has1", "Il1r1"), group.by = "celltype3", dot.scale = 30, scale.min = 10, scale.max = 50)
+DotPlot(object=fb.subset, features = c("Has1", "Il1r1"), group.by = "time", dot.scale = 30, scale.min = 10, scale.max = 50)
+DotPlot(object=fbmerged.ctrl30d, features = c("Has1", "Il1r1"), group.by = "time", dot.scale = 30, scale.min = 0, scale.max = 30)
+fbmerged.ctrl30d$celltype3 <- NULL
+fun <- function(x) {
+  if (x == "0_Alveolar FB") {"3_AlvFB"} 
+  else if (x == "1_Mesothelium") {"1_Meso"}
+  else if (x == "2_Pericyte") {"4_Peri"}
+  else if (x == "3_Smooth Muscle") {"0_SMC"}
+  else if (x == "4_Adventitial FB") {"2_AdvFB"}}
+fbmerged.ctrl30d$celltype3 <- mapply(fun, fbmerged.ctrl30d$celltype)
+Idents(fbmerged.ctrl30d)<-"celltype3"
+fbmerged.ctrl30d.smc.meso.fb <- subset(fbmerged.ctrl30d, idents = c("0_SMC", "1_Meso", "2_AdvFB", "3_AlvFB"))
+DotPlot(object=fbmerged.ctrl30d.smc.meso.fb, features = c("Has1", "Il1r1"), group.by = "time", dot.scale = 30, scale.min = 10, scale.max = 50)
+fbmerged.ctrl30d.smc.meso <- subset(fbmerged.ctrl30d, idents = c("0_SMC", "1_Meso"))
+DotPlot(object=fbmerged.ctrl30d.smc.meso, features = c("Has1", "Il1r1"), group.by = "time", dot.scale = 30, scale.min = 10, scale.max = 50)
+DotPlot(object=fbmerged.ctrl30d.smc.meso, features = c("Has1", "Il1r1"), group.by = "time", dot.scale = 30, scale.min = -5, scale.max = 10)
+Idents(fbmouse)<-"day"
+fbmouse.30d <- subset(fbmouse, idents = c("WT30D"))
+fun <- function(x) {
+  if (x == "0_Alveolar FB") {"2_AlvFB"} 
+  else if (x == "1_Mesothelium") {"1_Meso"}
+  else if (x == "2_Pericyte") {"0_Peri"}
+  else if (x == "3_Smooth Muscle") {"4_SMC"}
+  else if (x == "4_Adventitial FB") {"3_AdvFB"}}
+fbmouse.30d$celltype3 <- mapply(fun, fbmouse.30d$celltype)
+DotPlot(object=fbmouse.30d, features = c("Has1", "Il1r1"), group.by = "celltype3", dot.scale = 30, scale.min = -5, scale.max = 10, col.min = 0)
+DimPlot(iri, label = FALSE, group.by= "cell.type")+theme(legend.position = 'none')+ theme(axis.title = element_blank())+ggtitle(NULL)
+DimPlot(fb, label = FALSE, group.by= "celltype2")+theme(legend.position = 'none')+ theme(axis.title = element_blank())+ggtitle(NULL)
+DimPlot(fb, label = FALSE, group.by= "time")+theme(legend.position = 'none')+ theme(axis.title = element_blank())+ggtitle(NULL)
+c<- VlnPlot(fb, features = "Has1", group.by = "time", pt.size = 0)   
+c+scale_fill_manual(values = c('#ef69eb', '#ef69eb', '#ef69eb', '#ef69eb', '#ef69eb'))
+c<- VlnPlot(fb, features = "Il1r1", group.by = "time", pt.size = 0)   
+c+scale_fill_manual(values = c('#ef69eb', '#ef69eb', '#ef69eb', '#ef69eb', '#ef69eb'))
+c+scale_fill_manual(values = c('#4ee2f9', '#4ee2f9', '#4ee2f9', '#4ee2f9', '#4ee2f9'))
+
+#Stored human lungs (available on Human Cell Atlas Data Coordination Platform and NCBI BIOPROJECT accession code PRJEB31843)
+library(cowplot)
+library(ggplot2)
+library(ggpubr)
+data <- read_h5ad("lung.cellxgene.h5ad")
+data <- CreateSeuratObject(counts = t(as.matrix(data$X)), meta.data = data$obs)
+saveRDS(data, "lung.cellxgene.rds")
+Idents(stored)<-"Celltypes_updated_July_2020"
+VlnPlot(stored, features = "HAS1", group.by = "Time")
+
+#CAV
+BiocManager::install(c("GEOquery"))
+library(GEOquery)
+gse <- getGEO("GSE203548", GSEMatrix = TRUE)
+show(gse)
+getGEOSuppFiles("GSE203548")
+untar("GSE203548_RAW.tar")
+untar("GSM6176135_KA_1.tar.gz")
+untar("GSM6176136_KA_2.tar.gz")
+untar("GSM6176137_KA_3.tar.gz")
+untar("GSM6176138_KA_4.tar.gz")
+untar("GSM6176139_KA_5.tar.gz")
+untar("GSM6176140_KA_6.tar.gz")
+untar("GSM6176141_KA_7.tar.gz")
+untar("GSM6176142_KA_8.tar.gz")
+untar("GSM6176143_KA_9.tar.gz")
+untar("GSM6176144_KA_10.tar.gz")
+rv1.ctrl <- Read10X_h5("KA_1_output.h5", use.names = TRUE, unique.features = TRUE)
+rv1.ctrl <- CreateSeuratObject(counts = rv1.ctrl, project = "heart")
+rv2.ctrl <- Read10X_h5("KA_2_output.h5", use.names = TRUE, unique.features = TRUE)
+rv2.ctrl <- CreateSeuratObject(counts = rv2.ctrl, project = "heart")
+rv1.cav <- Read10X_h5("KA_3_output.h5", use.names = TRUE, unique.features = TRUE)
+rv1.cav <- CreateSeuratObject(counts = rv1.cav, project = "heart")
+lv.cav2 <- Read10X_h5("KA_4_output.h5", use.names = TRUE, unique.features = TRUE)
+lv.cav2 <- CreateSeuratObject(counts = lv.cav2, project = "heart")
+rv.ctrl3 <- Read10X_h5("KA_5_output.h5", use.names = TRUE, unique.features = TRUE)
+rv.ctrl3 <- CreateSeuratObject(counts = rv.ctrl3, project = "heart")
+rv.cav2 <- Read10X_h5("KA_6_output.h5", use.names = TRUE, unique.features = TRUE)
+rv.cav2 <- CreateSeuratObject(counts = rv.cav2, project = "heart")
+rv.cav3 <- Read10X_h5("KA_7_output.h5", use.names = TRUE, unique.features = TRUE)
+rv.cav3 <- CreateSeuratObject(counts = rv.cav3, project = "heart")
+lv.cav3 <- Read10X_h5("KA_8_output.h5", use.names = TRUE, unique.features = TRUE)
+lv.cav3 <- CreateSeuratObject(counts = lv.cav3, project = "heart")
+rv.cav4 <- Read10X_h5("KA_9_output.h5", use.names = TRUE, unique.features = TRUE)
+rv.cav4 <- CreateSeuratObject(counts = rv.cav4, project = "heart")
+lv.cav1 <- Read10X_h5("KA_10_output.h5", use.names = TRUE, unique.features = TRUE)
+lv.cav1 <- CreateSeuratObject(counts = lv.cav1, project = "heart")
+
+rv.ctrl1$sample <- "CTRL1"
+rv.ctrl2$sample <- "CTRL2"
+rv.ctrl3$sample <- "CTRL3"
+rv.cav1$sample <- "CAV1"
+lv.cav1$sample <- "CAV1"
+rv.cav2$sample <- "CAV2"
+lv.cav2$sample <- "CAV2"
+rv.cav3$sample <- "CAV3"
+lv.cav3$sample <- "CAV3"
+rv.ctrl1$type <- "RV_CTRL"
+rv.ctrl2$type <- "RV_CTRL"
+rv.ctrl3$type <- "RV_CTRL"
+rv.cav1$type <- "RV_CAV"
+lv.cav1$type <- "LV_CAV"
+rv.cav2$type <- "RV_CAV"
+lv.cav2$type <- "LV_CAV"
+rv.cav3$type <- "RV_CAV"
+lv.cav3$type <- "LV_CAV"
+rv.ctrl1$group <- "CTRL"
+rv.ctrl2$group <- "CTRL"
+rv.ctrl3$group <- "CTRL"
+rv.cav1$group <- "CAV"
+lv.cav1$group <- "CAV"
+rv.cav2$group <- "CAV"
+lv.cav2$group <- "CAV"
+rv.cav3$group <- "CAV"
+lv.cav3$group <- "CAV"
+all.merged <- merge(rv.ctrl1, y = c(rv.ctrl2, rv.ctrl3, rv.cav1, lv.cav1, rv.cav2, lv.cav2, rv.cav3, lv.cav3))
+all.merged=all.merged[,unname(which(colSums(GetAssayData(all.merged))!=0))]
+cav <- SCTransform(all.merged, method = "glmGamPoi", return.only.var.genes=TRUE)
+cav <- RunPCA(cav, features = VariableFeatures(object = cav), npcs=100, verbose=TRUE)
+cav <- RunHarmony(cav = cav, assay.use = "SCT", reduction = "pca", dims.use = 1:50, plot_convergence = TRUE)
+cav <- RunUMAP(object = cav, assay = "SCT", reduction = "harmony", dims = 1:50)
+cav <- FindNeighbors(object = cav, assay = "SCT", reduction = "harmony", dims = 1:50)
+cav <- FindClusters(cav, graph.name = "SCT_snn", algorithm = 3, resolution = c(0.1,0.2,0.3,0.4,0.5), verbose = FALSE)
+# Identification of non-stromal cell types
+# Leukocytes
+FeaturePlot(cav, features = c("PTPRC"))
+#Cardiomyocytes
+VlnPlot(cav, features = c("TTN", "SORBS2", "FHL2", "MLIP"))
+# Endothelial
+VlnPlot(cav, features = c("PECAM1", "VWF", "CDH5"))
+#Pericyte
+VlnPlot(cav, features = c("RGS5", "ABCC9", "KCNJ8"))
+#Fibroblasts
+VlnPlot(cav, features = c("DCN", "GSN", "PDGFRA"))
+#Mesothelial
+VlnPlot(cav, features = c("MSLN", "WT1", "BNC1"))
+#Smooth muscle
+VlnPlot(cav, features = c("MYH11", "TAGLN", "ACTA2"))
+#Neuronal
+VlnPlot(cav, features = c("PLP1", "NRXN1", "NRXN3"))
+#Adipocyte
+VlnPlot(cav, features = c("GPAM", "FASN", "LEP"))
+fun <- function(x) {
+  if (x == "0") {"Cardiomyocyte"} 
+  else if (x == "1") {"Endothelium"}
+  else if (x == "2") {"Leukocyte"}
+  else if (x == "3") {"Leukocyte"}
+  else if (x == "4") {"Stroma"}
+  else if (x == "5") {"Stroma"}
+  else if (x == "6") {"Leukocyte"}
+  else if (x == "7") {"Cardiomyocyte"}
+  else if (x == "8") {"Leukocyte"}
+  else if (x == "9") {"Leukocyte"}
+  else if (x == "10") {"Endothelium"}
+  else if (x == "11") {"Leukocyte"}
+  else if (x == "12") {"Cardiomyocyte"}
+  else if (x == "13") {"Stroma"}
+  else if (x == "14") {"Stroma"}
+  else if (x == "15") {"Stroma"}
+  else if (x == "16") {"Endothelium"}
+  else if (x == "17") {"Endothelium"}
+  else if (x == "18") {"Cardiomyocyte"}
+  else if (x == "19") {"Endothelium"}
+  else if (x == "20") {"Endothelium"}
+  else if (x == "21") {"Endothelium"}
+  else if (x == "22") {"Cardiomyocyte"}
+  else if (x == "23") {"Cardiomyocyte"}
+  else if (x == "24") {"Stroma"}
+  else if (x == "25") {"Leukocyte"}
+  else if (x == "26") {"Endothelium"}
+  else if (x == "27") {"Stroma"}
+  else if (x == "28") {"Stroma"}}
+cav$celltype <- mapply(fun, cav$SCT_snn_res.0.5)
+#Stromal subsetting
+fbcells<-subset(cav, idents = c("4"))
+Idents(fbcells) <- "sample"
+DefaultAssay(fbcells) <- "RNA"
+fbcells <- NormalizeData(fbcells)
+all.genes <- rownames(fbcells)
+fbcells <- ScaleData(fbcells, features = all.genes)
+fbcells <- FindVariableFeatures(fbcells, selection.method = "vst", nfeatures = 2000)
+fbcells <- RunPCA(fbcells, features = VariableFeatures(object = fbcells))
+fbcells <- FindNeighbors(fbcells, dims = 1:15)
+fbcells <- FindClusters(fbcells, resolution = c(0.2, 0.4, 0.5, 0.8, 1.0))
+fbcells <- RunUMAP(fbcells, dims = 1:15)
+DefaultAssay(fbcells) <- "RNA"
+fbcells <- RunHarmony(object = fbcells, assay.use = "RNA", reduction = "pca", dims.use = 1:50, group.by.vars = "sample", plot_convergence = TRUE)
+fbcells <- RunUMAP(object = fbcells, assay = "RNA", reduction = "harmony", dims = 1:15)
+fbcells <- FindNeighbors(object = fbcells, assay = "RNA", reduction = "harmony", dims = 1:15)
+fbcells <- FindClusters(fbcells, graph.name = "RNA_snn", algorithm = 3, resolution = c(0.1,0.2,0.3,0.4,0.5), verbose = FALSE)
+Idents(fbcells)<-"RNA_snn_res.0.5"
+fun <- function(x) {
+  if (x == "0") {"Fibroblast"} 
+  else if (x == "1") {"Pericyte"}
+  else if (x == "2") {"Fibroblast"}
+  else if (x == "3") {"Pericyte"}
+  else if (x == "4") {"Fibroblast"}
+  else if (x == "5") {"Fibroblast"}
+  else if (x == "6") {"Smooth Muscle"}
+  else if (x == "7") {"Fibroblast"}
+  else if (x == "8") {"Neuronal"}
+  else if (x == "9") {"Fibroblast"}
+  else if (x == "10") {"Neuronal"}
+  else if (x == "11") {"Fibroblast"}
+  else if (x == "12") {"Fibroblast"}
+  else if (x == "13") {"Fibroblast"}
+  else if (x == "14") {"Neuronal"}
+  else if (x == "15") {"Adipocyte"}
+  else if (x == "16") {"Fibroblast"}
+  else if (x == "17") {"Neuronal"}}
+fbcells$celltype <- mapply(fun, fbcells$RNA_snn_res.0.5)
+fb.cav<- subset(fbcells, idents = c("CAV"))
+fun <- function(x) {
+  if (x == "Smooth Muscle") {"4_SMC"} 
+  else if (x == "Pericyte") {"0_Peri"}
+  else if (x == "Neuronal") {"2_Neuron"}
+  else if (x == "Fibroblast") {"3_FB"}
+  else if (x == "Adipocyte") {"1_Adipo"}}
+fb.cav$celltype3 <- mapply(fun, fb.cav$celltype)
+DotPlot(object=fb.cav, features = c("HAS1", "IL1R1"), group.by = "celltype3", dot.scale = 40, scale.min = -5, scale.max = 10, col.min = 0, col.max = 1)
+
+#CLAD
+library(GEOquery)
+setwd("/storage1/fs1/klavine/Active/Shepherd/IRI/Human_CLAD_GSE224210")
+gse <- getGEO("GSE224210")
+show(gse)
+getGEOSuppFiles("GSE224210")
+raw_counts <- read.table(file="./GSE224210_Normalized_Count_Matrix.csv",sep=",", row.names = 1, header=TRUE)
+meta <- read.table(file="./GSE224210_Cell_Identities.csv",sep=",", row.names = 1, header=TRUE)
+mydata <- CreateSeuratObject(counts = raw_counts, meta.data = meta)
+saveRDS(mydata, "GSE224210_Normalized.rds")
+Idents(clad)<-"orig,ident"
+ncol(clad) #83,456
+clad[["percent.mt"]] <- PercentageFeatureSet(clad, pattern = "^MT-")
+VlnPlot(clad, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+clad <- subset(clad, subset = nCount_RNA > 200 & nCount_RNA < 7500 & percent.mt < 10)
+ncol(clad) #57,910 (69%)
+clad <- SCTransform(clad, vars.to.regress = ("percent.mt"), method = "glmGamPoi", return.only.var.genes=FALSE)
+saveRDS(clad, "./clad.sctransform.rds")
+clad <- RunPCA(clad, features = VariableFeatures(object = clad), npcs=100, verbose=TRUE)
+clad <- RunHarmony(object = clad, assay.use = "SCT", reduction = "pca", dims.use = 1:50, group.by.vars = "orig.ident", plot_convergence = TRUE)
+clad <- RunUMAP(object = clad, assay = "SCT", reduction = "harmony", dims = 1:50)
+clad <- FindNeighbors(object = clad, assay = "SCT", reduction = "harmony", dims = 1:50)
+clad <- FindClusters(clad, graph.name = "SCT_snn", algorithm = 3, resolution = c(0.1,0.2,0.3,0.4,0.5), verbose = FALSE)
+DefaultAssay(clad) <- 'SCT'
+fun <- function(x) {
+  if (x == "0") {"T cells"} 
+  else if (x == "1") {"Epithelium"}
+  else if (x == "2") {"Monocytes"}
+  else if (x == "3") {"Stroma"}
+  else if (x == "4") {"Endothelium"}
+  else if (x == "5") {"Epithelium"}
+  else if (x == "6") {"Monocytes"}
+  else if (x == "7") {"Macrophages"}
+  else if (x == "8") {"Endothelium"}
+  else if (x == "9") {"ILC"}
+  else if (x == "10") {"Epithelium"}
+  else if (x == "11") {"Macrophages"}
+  else if (x == "12") {"Macrophages"}
+  else if (x == "13") {"Dendritic cells"}
+  else if (x == "14") {"Endothelium"}
+  else if (x == "15") {"Endothelium"}
+  else if (x == "16") {"NK cells"}
+  else if (x == "17") {"Endothelium"}
+  else if (x == "18") {"Endothelium"}
+  else if (x == "19") {"Epithelium"}
+  else if (x == "20") {"Stroma"}
+  else if (x == "21") {"B cells"}
+  else if (x == "22") {"Endothelium"}
+  else if (x == "23") {"Epithelium"}
+  else if (x == "24") {"Macrophages"}
+  else if (x == "25") {"Epithelium"}
+  else if (x == "26") {"Macrophages"}
+  else if (x == "27") {"B cells"}
+  else if (x == "28") {"B cells"}
+  else if (x == "29") {"Mast cells"}}
+clad$simple <- mapply(fun, clad$SCT_snn_res.0.5)
+
+fun <- function(x) {
+  if (x == "0") {"Immune"} 
+  else if (x == "1") {"Epithelium"}
+  else if (x == "2") {"Immune"}
+  else if (x == "3") {"Stroma"}
+  else if (x == "4") {"Endothelium"}
+  else if (x == "5") {"Epithelium"}
+  else if (x == "6") {"Immune"}
+  else if (x == "7") {"Immune"}
+  else if (x == "8") {"Endothelium"}
+  else if (x == "9") {"Immune"}
+  else if (x == "10") {"Epithelium"}
+  else if (x == "11") {"Immune"}
+  else if (x == "12") {"Immune"}
+  else if (x == "13") {"Immune"}
+  else if (x == "14") {"Endothelium"}
+  else if (x == "15") {"Endothelium"}
+  else if (x == "16") {"Immune"}
+  else if (x == "17") {"Endothelium"}
+  else if (x == "18") {"Endothelium"}
+  else if (x == "19") {"Epithelium"}
+  else if (x == "20") {"Stroma"}
+  else if (x == "21") {"Immune"}
+  else if (x == "22") {"Endothelium"}
+  else if (x == "23") {"Epithelium"}
+  else if (x == "24") {"Immune"}
+  else if (x == "25") {"Epithelium"}
+  else if (x == "26") {"Immune"}
+  else if (x == "27") {"Immune"}
+  else if (x == "28") {"Immune"}
+  else if (x == "29") {"Immune"}}
+clad$supersimple <- mapply(fun, clad$SCT_snn_res.0.5)
+metadata <- clad@meta.data
+metadata$group[which(str_detect(metadata$disease, "CLAD"))] <- "CLAD"
+metadata$sample[which(str_detect(metadata$disease, "DT"))] <- "REPERFUSED"
+clad@meta.data <- metadata
+fb.cells<-subset(clad, idents = c("3", "20"))
+Idents(fb.cells) <- "orig.ident"
+DefaultAssay(fb.cells) <- "RNA"
+fb.cells <- NormalizeData(fb.cells)
+all.genes <- rownames(fb.cells)
+fb.cells <- ScaleData(fb.cells, features = all.genes)
+fb.cells <- FindVariableFeatures(fb.cells, selection.method = "vst", nfeatures = 2000)
+fb.cells <- RunPCA(fb.cells, features = VariableFeatures(object = fb.cells))
+fb.cells <- FindNeighbors(fb.cells, dims = 1:15)
+fb.cells <- FindClusters(fb.cells, resolution = c(0.2, 0.4, 0.5, 0.8, 1.0))
+fb.cells <- RunUMAP(fb.cells, dims = 1:15)
+DefaultAssay(fb.cells) <- "RNA"
+fb.cells <- RunHarmony(object = fb.cells, assay.use = "RNA", reduction = "pca", dims.use = 1:50, group.by.vars = "orig.ident", plot_convergence = TRUE)
+fb.cells <- RunUMAP(object = fb.cells, assay = "RNA", reduction = "harmony", dims = 1:15)
+fb.cells <- FindNeighbors(object = fb.cells, assay = "RNA", reduction = "harmony", dims = 1:15)
+fbclad <- FindClusters(fb.cells, graph.name = "RNA_snn", algorithm = 3, resolution = c(0.1,0.2,0.3,0.4,0.5), verbose = FALSE)
+Idents(clad)<-"disease"
+clad.subset <-subset(clad, idents = "CLAD")
+Idents(fbclad)<-"disease"
+fbclad.subset <-subset(fbclad, idents = "CLAD")
+DotPlot(object=clad.subset, features = c("HAS1", "IL1R1"), group.by = "sample", dot.scale = 30, scale.min = -5, scale.max = 10)
+DotPlot(object=fbclad.subset, features = c("HAS1", "IL1R1"), group.by = "sample", dot.scale = 30, scale.min = -5, scale.max = 10)
