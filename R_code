@@ -595,3 +595,49 @@ Idents(fbclad)<-"disease"
 fbclad.subset <-subset(fbclad, idents = "CLAD")
 DotPlot(object=clad.subset, features = c("HAS1", "IL1R1"), group.by = "sample", dot.scale = 30, scale.min = -5, scale.max = 10)
 DotPlot(object=fbclad.subset, features = c("HAS1", "IL1R1"), group.by = "sample", dot.scale = 30, scale.min = -5, scale.max = 10)
+
+shav <- readRDS("/14531c83-07a8-4eb3-8b9d-c4482f2087fd.rds")
+fun <- function(x) {
+  if (x == "case_2_cit") {"CIS"} 
+  else if (x == "case_3_cit") {"CIS"}
+  else if (x == "case_4_cit") {"CIS"}
+  else if (x == "case_5_cit") {"CIS"}
+  else if (x == "case_6_cit") {"CIS"}
+  else if (x == "case_7_cit") {"CIS"}
+  else if (x == "case_2_R2") {"2HR"}
+  else if (x == "case_3_R2") {"2HR"}
+  else if (x == "case_4_R2") {"2HR"}
+  else if (x == "case_5_R2") {"2HR"}
+  else if (x == "case_6_R2") {"2HR"}
+  else if (x == "case_7_R2") {"2HR"}}
+shav$time <- mapply(fun, shav$sample_name)
+fun <- function(x) {
+  if (x == "case_1_donor") {"donor"} 
+  else if (x == "case_2_donor") {"donor"}
+  else if (x == "case_3_donor") {"donor"}
+  else if (x == "case_4_donor") {"donor"}
+  else if (x == "case_5_donor") {"donor"}
+  else if (x == "case_6_donor") {"donor"}
+  else if (x == "case_1_recipient") {"recipient"}
+  else if (x == "case_2_recipient") {"recipient"}
+  else if (x == "case_3_recipient") {"recipient"}
+  else if (x == "case_4_recipient") {"recipient"}
+  else if (x == "case_5_recipient") {"recipient"}
+  else if (x == "case_6_recipient") {"recipient"}}
+shav$group <- mapply(fun, shav$donor_id)
+Idents(shav)<-"orig.ident"
+shav[["percent.mt"]] <- PercentageFeatureSet(shav, pattern = "^MT-")
+shav <- SCTransform(shav, method = "glmGamPoi", return.only.var.genes=TRUE)
+fb<-subset(shav, idents = c("19", "26"))
+DefaultAssay(shav)<-"RNA"
+fb <- SCTransform(fb, method = "glmGamPoi", return.only.var.genes=FALSE)
+fb <- RunPCA(fb, features = VariableFeatures(object = fb), npcs=100, verbose=TRUE)
+fb <- RunHarmony(object = fb, assay.use = "SCT", reduction = "pca", dims.use = 1:50, group.by.vars = "sample_name", plot_convergence = TRUE)
+fb <- RunUMAP(object = fb, assay = "SCT", reduction = "harmony", dims = 1:50)
+fb <- FindNeighbors(object = fb, assay = "SCT", reduction = "harmony", dims = 1:50)
+fb <- FindClusters(fb, graph.name = "SCT_snn", algorithm = 3, resolution = c(0.1,0.2,0.5), verbose = FALSE)
+markers <- c("HAS1", "IL-1R1")
+markers.ens <- c("ENSG00000105509","ENSG00000115594")
+fb<-pan
+fb@meta.data[,markers]<-GetAssayData(fb)[markers.ens,] %>% as.matrix %>% t
+DotPlot(object=fb, features = markers, group.by = "time", dot.scale = 30, scale.min = -5, scale.max = 1, col.min = 0, col.max = 1)+theme(axis.text.x=element_text(size=21),axis.text.y=element_text(size=21))
