@@ -641,3 +641,814 @@ markers.ens <- c("ENSG00000105509","ENSG00000115594")
 fb<-pan
 fb@meta.data[,markers]<-GetAssayData(fb)[markers.ens,] %>% as.matrix %>% t
 DotPlot(object=fb, features = markers, group.by = "time", dot.scale = 30, scale.min = -5, scale.max = 1, col.min = 0, col.max = 1)+theme(axis.text.x=element_text(size=21),axis.text.y=element_text(size=21))
+
+######ADDITIONAL ANALYSIS############
+#Load the dataset
+setwd("/storage2/fs1/klavine/Active/Shepherd/IRI/DataFiles/RawData/Anakinra/PBS7D/Kreisel_SR007143_10X/SR007143_Hailey_STM_PBS_45minus/outs")
+CTRLS.data <- Read10X(data.dir = "./filtered_feature_bc_matrix")
+setwd("/storage2/fs1/klavine/Active/Shepherd/IRI/DataFiles/RawData/Anakinra/PBS7D/Kreisel_SR007143_10X/SR007143_Hailey_STM_PBS_45plus/outs")
+CTRL1.data <- Read10X(data.dir = "./filtered_feature_bc_matrix")
+setwd("/storage2/fs1/klavine/Active/Shepherd/IRI/DataFiles/RawData/Anakinra/Anakinra7D/Kreisel_SR007161_10X/SR007161_Hailey_STM_IL1RA_45minus_GEX/outs")
+ANAS.data <- Read10X(data.dir = "./filtered_feature_bc_matrix")
+setwd("/storage2/fs1/klavine/Active/Shepherd/IRI/DataFiles/RawData/Anakinra/Anakinra7D/Kreisel_SR007161_10X/SR007161_Hailey_STM_IL1RA_45plus_GEX/outs")
+ANA1.data <- Read10X(data.dir = "./filtered_feature_bc_matrix")
+
+#Create Seurat object 
+CTRL7DS <- CreateSeuratObject(counts = CTRLS.data)
+CTRL7D1 <- CreateSeuratObject(counts = CTRL1.data)
+ANA7DS <- CreateSeuratObject(counts = ANAS.data)
+ANA7D1 <- CreateSeuratObject(counts = ANA1.data)
+
+#Add relevant metadata
+CTRL7DS$sample <- "Control Stroma"
+CTRL7D1$sample <- "Control Leukocyte"
+ANA7DS$sample <- "IL1R1A Stroma"
+ANA7D1$sample <- "IL1R1A Leukocyte"
+CTRL7DS$group <- "CTRL"
+CTRL7D1$group <- "CTRL"
+ANA7DS$group <- "IL1R1A"
+ANA7D1$group <- "IL1R1A"
+CTRL7DS$type <- "Stroma"
+CTRL7D1$type <- "Leukocyte"
+ANA7DS$type <- "Stroma"
+ANA7D1$type <- "Leukocyte"
+
+#QC
+CTRL7DS[["percent.mt"]] <- PercentageFeatureSet(CTRL7DS, pattern = "^mt-")
+CTRL7D1[["percent.mt"]] <- PercentageFeatureSet(CTRL7D1, pattern = "^mt-")
+ANA7DS[["percent.mt"]] <- PercentageFeatureSet(ANA7DS, pattern = "^mt-")
+ANA7D1[["percent.mt"]] <- PercentageFeatureSet(ANA7D1, pattern = "^mt-")
+VlnPlot(CTRL7DS, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(CTRL7D1, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(ANA7DS, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+VlnPlot(ANA7D1, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+CTRL7DS <- subset(CTRL7DS, subset = nCount_RNA > 500 & nCount_RNA < 50000 & percent.mt < 5)
+CTRL7D1 <- subset(CTRL7D1, subset = nCount_RNA > 500 & nCount_RNA < 50000 & percent.mt < 5)
+ANA7DS <- subset(ANA7DS, subset = nCount_RNA > 500 & nCount_RNA < 50000 & percent.mt < 5)
+ANA7D1 <- subset(ANA7D1, subset = nCount_RNA > 500 & nCount_RNA < 50000 & percent.mt < 5)
+
+#Merge
+all.merged <- merge(CTRL7DS, y = c(CTRL7D1, ANA7DS, ANA7D1))
+saveRDS(all.merged, "./all.merged.rds")
+
+#Reference Mapping
+library(Seurat)
+library(patchwork)
+library(dplyr)
+reference <- readRDS("~/iri.moreMetadata.rds")
+sample <- readRDS("~/all.merged.rds")
+
+reference <- RunUMAP(reference, assay = "SCT", reduction = "harmony", dims = 1:50, reduction.name = "umapNew", return.model = TRUE)
+DimPlot(reference, group.by = "cell.type", reduction = "umapNew") 
+reference <- ScaleData(reference, assay = 'SCT')
+reference <- FindNeighbors(reference, features = VariableFeatures(object = reference), assay = "SCT")
+reference <- RunSPCA(reference, assay = 'SCT', graph = 'SCT_snn')
+reference <- FindNeighbors(
+  object = reference,
+  reduction = "spca",
+  dims = 1:50,
+  graph.name = "spca.annoy.neighbors", 
+  k.param = 50,
+  cache.index = TRUE,
+  return.neighbor = TRUE,
+  l2.norm = TRUE)
+
+sample[["RNA"]] <- split(sample[["RNA"]], f = sample$group)
+options(future.globals.maxSize = 8 * 1e9)
+sample.batches <- SCTransform(sample, vars.to.regress = ("percent.mt"), return.only.var.genes=FALSE)
+anchors <- FindTransferAnchors(
+  reference = reference,
+  query = sample.batches,
+  normalization.method = "SCT",
+  reference.reduction = "spca",
+  reference.neighbors = "spca.annoy.neighbors", 
+  dims = 1:50)
+
+sample.batches <- MapQuery(
+  anchorset = anchors,
+  query = sample.batches,
+  reference = reference,
+  refdata = list(
+    celltype = "cell.type"),
+  reference.reduction = "spca", 
+  reduction.model = "umapNew")
+saveRDS(sample.batches, "./sample.batches_reference.map.rds")
+saveRDS(anchors, "./anchors_reference.map.rds")
+saveRDS(reference, "./reference.reference.map.rds")
+
+Idents(reference)<-"day"
+ref.7d <- subset(reference, idents = "WT7D")
+Idents(ref.7d)<-"cell.type"
+
+cols3 <- c("#B35561", "#E36B46", "#F49178", "#F3BE76", "#FAF7C1", "#C9D6A1", "#AAD3A2", "#76BFA0", "#59ADA5", "#3F7C9E", "#494C70")
+Idents(sample.batches)<-"predicted.celltype"
+VlnPlot(sample.batches, features = c("Cd79a"), ncol = 1, flip = TRUE, pt.size = 0)+scale_fill_manual(values = cols3)+theme(legend.position = 'none')+theme(axis.text.x = element_blank())
+VlnPlot(sample.batches, features = c("Cd8a"), ncol = 1, flip = TRUE, pt.size = 0, y.max = 3)+scale_fill_manual(values = cols3)+theme(legend.position = 'none')+theme(axis.text.x = element_blank())
+VlnPlot(sample.batches, features = c("Retnlg"), ncol = 1, flip = TRUE, pt.size = 0)+scale_fill_manual(values = cols3)+theme(legend.position = 'none')+theme(axis.text.x = element_blank())
+VlnPlot(sample.batches, features = c("Mrc1"), ncol = 1, flip = TRUE, pt.size = 0)+scale_fill_manual(values = cols3)+theme(legend.position = 'none')+theme(axis.text.x = element_blank())
+VlnPlot(sample.batches, features = c("Mcpt8"), ncol = 1, flip = TRUE, pt.size = 0)+scale_fill_manual(values = cols3)+theme(legend.position = 'none')+theme(axis.text.x = element_blank())
+VlnPlot(sample.batches, features = c("Klrb1a"), ncol = 1, flip = TRUE, pt.size = 0)+scale_fill_manual(values = cols3)+theme(legend.position = 'none')+theme(axis.text.x = element_blank())
+VlnPlot(sample.batches, features = c("Cldn5"), ncol = 1, flip = TRUE, pt.size = 0)+scale_fill_manual(values = cols3)+theme(legend.position = 'none')+theme(axis.text.x = element_blank())
+VlnPlot(sample.batches, features = c("Col1a2"), ncol = 1, flip = TRUE, pt.size = 0)+scale_fill_manual(values = cols3)+theme(legend.position = 'none')+theme(axis.text.x = element_blank())
+VlnPlot(sample.batches, features = c("Top2a"), ncol = 1, flip = TRUE, pt.size = 0)+scale_fill_manual(values = cols3)+theme(legend.position = 'none')+theme(axis.text.x = element_blank())
+VlnPlot(sample.batches, features = c("Epcam"), ncol = 1, flip = TRUE, pt.size = 0)+scale_fill_manual(values = cols3)+theme(legend.position = 'none')+theme(axis.text.x = element_blank())
+VlnPlot(sample.batches, features = c("Flt3"), ncol = 1, flip = TRUE, pt.size = 0)+scale_fill_manual(values = cols3)+theme(legend.position = 'none')+theme(axis.text.x = element_blank())
+ 
+#merge reference and query
+reference$id <- "CTRL"
+Idents(reference)<-"day"
+ref.7d <- subset(reference, idents = "WT7D")
+fun <- function(x) {
+  if (x == "CTRL") {"CTRL"} 
+  else if (x == "IL1R1A") {"Anakinra"}}
+sample.batches$id <- mapply(fun, sample.batches$group)
+fun <- function(x) {
+  if (x == "B cell") {"B cell"} 
+  else if (x == "T cell") {"T cell"}
+  else if (x == "Dendritic cell") {"Dendritic cell"}
+  else if (x == "Endothelium") {"Endothelium"}
+  else if (x == "Epithelium") {"Epithelium"}
+  else if (x == "Mast cell") {"Mast cell"}
+  else if (x == "Stroma") {"Stroma"}
+  else if (x == "Proliferative") {"Proliferative"}
+  else if (x == "NK cell") {"NK cell"}
+  else if (x == "Neutrophil") {"Neutrophil"}
+  else if (x == "Monocyte/Macrophage") {"Monocyte/Macrophage"}}
+sample.batches$cell.type <- mapply(fun, sample.batches$predicted.celltype)
+refquery <- merge(ref.7d, sample.batches)
+refquery[["spca"]] <- merge(ref.7d[["spca"]], sample.batches[["ref.spca"]])
+refquery <- RunUMAP(refquery, reduction = 'spca', dims = 1:50)
+ref<-JoinLayers(ref)
+saveRDS(refquery, "./refquery_allmerged_reference.map.rds")
+
+Idents(refquery)<-"orig.ident"
+refquery <- SplitObject(refquery, split.by = "id")
+options(future.globals.maxSize= 891289600)
+refquery.list <- lapply(refquery, SCTransform, vars.to.regress = "percent.mt")
+features  <- SelectIntegrationFeatures(refquery.list, nfeatures = 3000)
+refquery.list <- PrepSCTIntegration(refquery.list, anchor.features = features)
+anchors <- FindIntegrationAnchors(refquery.list, normalization.method = "SCT", anchor.features = features)
+refquery.int <- IntegrateData(anchorset = anchors, normalization.method = "SCT", k.weight = 50)
+refquery.int <- RunPCA(refquery.int)
+refquery.int <- RunUMAP(refquery.int, reduction = "pca", dims = 1:10)
+refquery.int <- FindNeighbors(refquery.int, dims = 1:10)
+refquery.int <- FindClusters(refquery.int, dims = 1:10)
+refquery.int <- RunTSNE(object = refquery.int, features = VariableFeatures(object = refquery.int), reduction.key = 'sctSNE_', reduction.name = 'sctsne')
+
+d<-DimPlot(refquery.int, group.by = 'id', shuffle = TRUE, pt.size = 1, reduction = "sctsne")
+cols1 <- c("#F3756D", "#19BDC2")
+d + scale_color_manual(values = cols1)
+
+DefaultAssay(fb) <- "SCT"
+expdata <- GetAssayData(fb)
+Pop1 <- c("Serpinf1", "Pi16", "Entpd2")
+Pop1 <- c("Fgfr4", "Slc7a10", "Slc38a5")
+Pop1 <- c("Trpc6", "Higd1b", "Vtn")
+Pop1 <- c("Acta2", "Lgr5", "Des")
+Pop1 <- c("Upk3b", "Msln", "Wt1")
+pops<-list(Pop1)
+z_scores<-NULL
+for (i in 1:length(pops)) {
+  genes <- pops[[i]]
+  zz <- which(tolower(rownames(expdata)) %in% tolower(genes))
+  av <- numeric(ncol(expdata))
+  geneExp <- as.matrix(expdata[zz, ])
+  geneExp <- t(scale(t(geneExp)))
+  geneExp[is.nan(geneExp)] <- 0
+  z_scores <- rbind(z_scores,(av + colSums(geneExp) / length(zz)))}
+fb@meta.data$pop_z<-z_scores[1,]
+FeaturePlot(fb, features = "pop_z",pt.size=0.7, order = TRUE)+scale_color_gradientn(colors=c("#AFD5E3", "#D66C72", "#ED2024"), oob=scales::squish, limits=c(0,3))
+
+DefaultAssay(endo.int) <- "SCT"
+expdata <- GetAssayData(endo.int)
+Pop1 <- c("Cldn5", "Pecam1")
+pops<-list(Pop1)
+z_scores<-NULL
+for (i in 1:length(pops)) {
+  genes <- pops[[i]]
+  zz <- which(tolower(rownames(expdata)) %in% tolower(genes))
+  av <- numeric(ncol(expdata))
+  geneExp <- as.matrix(expdata[zz, ])
+  geneExp <- t(scale(t(geneExp)))
+  geneExp[is.nan(geneExp)] <- 0
+  z_scores <- rbind(z_scores,(av + colSums(geneExp) / length(zz)))}
+endo.int@meta.data$pop_z<-z_scores[1,]
+FeaturePlot(endo.int, features = "pop_z",pt.size=0.7, reduction = "sctsne", order = TRUE)+scale_color_gradientn(colors=c("#AFD5E3", "#D66C72", "#ED2024"), oob=scales::squish, limits=c(-1,1))
+
+###Fibroblast subcluster
+fb.refquery<-subset(refquery, idents = c("Stroma"))
+Idents(fb.refquery) <- "sample"
+DefaultAssay(fb.refquery) <- "RNA"
+fb.refquery <- NormalizeData(fb.refquery)
+all.genes <- rownames(fb.refquery)
+fb.refquery <- ScaleData(fb.refquery, features = all.genes)
+fb.refquery <- FindVariableFeatures(fb.refquery, selection.method = "vst", nfeatures = 2000)
+fb.refquery <- RunPCA(fb.refquery, features = VariableFeatures(object = fb.refquery))
+fb.refquery <- FindNeighbors(fb.refquery, dims = 1:15)
+fb.refquery <- FindClusters(fb.refquery, resolution = c(0.2, 0.4, 0.5, 0.8, 1.0))
+fb.refquery <- RunUMAP(fb.refquery, dims = 1:15)
+DefaultAssay(fb.refquery) <- "RNA"
+fb.refquery<-JoinLayers(fb.refquery)
+saveRDS(fb.refquery, "./fb.refquery_allmerged_reference.map.rds")
+
+##Visualization
+VlnPlot(fb.refquery, features = "Has1", y.max = 11)+ stat_compare_means(aes(label = "p.format"), method = "t.test", paired = FALSE, label.y = c(9))
+my_comparisons <- list(c("0_CTRL", "1_Anakinra"))
+VlnPlot(fb.refquery, features = "Has1", group.by = "id", y.max = 11, pt.size = 0)+stat_compare_means(method = "t.test", comparisons = my_comparisons, label = "p.signif",  bracket.size = 0.5, label.y = c(5))+
+  stat_compare_means(label.y = 10)+NoLegend()+scale_fill_manual(values = c('#FAF7C1', '#FAF7C1'))
+VlnPlot(fb.refquery, features = "Il1r1", group.by = "id", y.max = 11, pt.size = 0)+stat_compare_means(method = "t.test", comparisons = my_comparisons, label = "p.signif",  bracket.size = 0.5, label.y = c(5))+
+  stat_compare_means(label.y = 10)+NoLegend()+scale_fill_manual(values = c('#BBE0C2', '#BBE0C2'))
+VlnPlot(fb.refquery, features = "Il6", group.by = "id", y.max = 11, pt.size = 0)+stat_compare_means(method = "t.test", comparisons = my_comparisons, label = "p.signif",  bracket.size = 0.5, label.y = c(5.8))+
+  stat_compare_means(label.y = 10)+NoLegend()+scale_fill_manual(values = c('#6CBFBC', '#6CBFBC'))
+VlnPlot(fb.refquery, features = "Cxcl1", group.by = "id", y.max = 11, pt.size = 0)+stat_compare_means(method = "t.test", comparisons = my_comparisons, label = "p.signif",  bracket.size = 0.5, label.y = c(6))+
+  stat_compare_means(label.y = 10)+NoLegend()+scale_fill_manual(values = c('#2C94B6', '#2C94B6'))
+VlnPlot(fb.refquery, features = "Cxcl2", group.by = "id", y.max = 11, pt.size = 0)+stat_compare_means(method = "t.test", comparisons = my_comparisons, label = "p.signif",  bracket.size = 0.5, label.y = c(6.6))+
+  stat_compare_means(label.y = 10)+NoLegend()+scale_fill_manual(values = c('#3179AC', '#3179AC'))
+VlnPlot(fb.refquery, features = "Ccl2", group.by = "id", y.max = 11, pt.size = 0)+stat_compare_means(method = "t.test", comparisons = my_comparisons, label = "p.signif",  bracket.size = 0.5, label.y = c(6.1))+
+  stat_compare_means(label.y = 10)+NoLegend()+scale_fill_manual(values = c('#235A9D', '#235A9D'))
+VlnPlot(fb.refquery, features = "Ccl7", group.by = "id", y.max = 11, pt.size = 0)+stat_compare_means(method = "t.test", comparisons = my_comparisons, label = "p.signif",  bracket.size = 0.5, label.y = c(5))+
+  stat_compare_means(label.y = 10)+NoLegend()+scale_fill_manual(values = c('#2A367D', '#2A367D'))
+
+fun <- function(x) {
+  if (x == "CTRL") {"0_CTRL"} 
+  else if (x == "Anakinra") {"1_Anakinra"}}
+fb.refquery$new.id <- mapply(fun, fb.refquery$id)
+
+features <- c("Col1a1", "Col1a2", "Col3a1", "Col5a1", "Bgn", "Acta2", "Mmp2", "Tagln")
+a<-DotPlot(fb.refquery, features = features, group.by = "new.id", dot.scale = 18, scale.min = 10, scale.max = 60)
+a+ theme(axis.text.x = element_text(size=9, angle = 45, hjust=1))+ theme(axis.text.y = element_text(size=9)) +scale_color_gradient2(low = "#B783A7", mid = "#4C3D60", high = "#A3C195", midpoint = 0, oob=scales::squish, limits=c(-0.4,0.4))
+
+features <- c("COL1A1", "COL1A2", "COL3A1", "COL5A1", "BGN", "ACTA2", "MMP2", "TAGLN")
+a<-DotPlot(clad.fb, features = features, group.by = "disease", dot.scale = 18, scale.min = 10, scale.max = 60)
+a+ theme(axis.text.x = element_text(size=9, angle = 45, hjust=1))+ theme(axis.text.y = element_text(size=9)) +scale_color_gradient2(low = "#B783A7", mid = "#4C3D60", high = "#A3C195", midpoint = 0, oob=scales::squish, limits=c(-0.4,0.4))
+
+Idents(fb.refquery)<-"id"
+feat = c("Bc1",  "Ccl2",  "Cxcl2",  "Pim1",  "Pdpn",  "Clu",  "Neat1",  "Slc39a1",  "Noct",  "Hk2", "Col1a1", "Uba52",  "Sdc4",  "Mmp23",  "Cxcl1",  "Kdelr2",  "Timp1",  "Crip1",  "Dbi" , "Tnfaip3",  "Tmem263", "Nme2",  "Ndufb4",  "Spry2",  "Lgals7",  "Ccdc80",  "Fbln2",  "Atox1",  "Lrrc8a", "Actb",  "Bloc1s1",  "Ndufa3",  "Soat1",  "Gm2a", "Pals1",  "Cstpp1",  "Plac9",  "Septin7",  "Cmss1",  "Golm2",  "Skp1",  "Bltp1",  "Adcy2",  "Arhgap6", "Prkg1", "Elmo1",  "Airn",  "Sox5",  "Cdk8",  "Dmd",  "Nckap5",  "Cacnb2",  "Shroom3" , "Pdzd2",  "Pde7b", "Maml2",  "Lncpint",  "Adgrl3",  "Fbxl7",  "Arl15",  "Prkca",  "Grk5",  "Sik3", "Mbd5",  "Prex2",  "Dtna",  "Angpt1",  "Itga1")
+DoHeatmap(subset(fb.refquery, downsample = 500), features = feat, disp.max = 1.4, disp.min = -1.4) + scale_fill_gradient2(low = rev(c('#ECE832','#F4B942', '#DD7C80')), mid = "#C63F80", high = rev(c('#863192','#2D2C7E', '#321F59')), midpoint = 0)
+
+FeaturePlot(fb.refquery, features = c("Il1r1", "Has1"), order = T, min.cutoff = "q1",max.cutoff = "q99", blend = T, cols = c("darkblue", "green", "magenta"), blend.threshold = 0) &DarkTheme() &NoAxes()
+
+#Defining subpopulations
+DimPlot(iri.fb, label = TRUE, group.by = "RNA_snn_res.0.2")
+Idents(iri.fb)<-"RNA_snn_res.0.2"
+fb.refquery$cluster.id <- paste(Idents(fb.refquery), fb.refquery$id, sep = "_")
+Idents(fb.refquery) <- "cluster.id"
+levels(fb.refquery)
+
+FeaturePlot(iri.fb, features = c("Hk2", "Il1r1"), order = T, min.cutoff = "q1",max.cutoff = "q99", blend = T, cols = c("darkblue", "green", "magenta"), blend.threshold = 0) &DarkTheme() &NoAxes()
+FeaturePlot(iri.fb, features = c("Hk2", "Has1"), order = T, min.cutoff = "q1",max.cutoff = "q99", blend = T, cols = c("darkblue", "green", "magenta"), blend.threshold = 0) &DarkTheme() &NoAxes()
+plot<- FeaturePlot(iri.fb, features = c("Il1r1", "Has1"), blend = T) 
+
+cell_typeA_marker_gene_list <- list(c("Has1", "Il1r1", "Cxcl1", "Tnfaip6", "Dpt", "Mt2", "Cxcl2", "Il6", "Sod2", "Sparcl1", "Odc1", "Dcn", "Timp1", "Fgl2", "Ccl2", "Csf1", "Nfkb1", "Hk2"))
+cell_typeA_marker_gene_list <- list(c("Has1", "Il1r1"))
+iri.fb <- AddModuleScore(object = iri.fb, features = cell_typeA_marker_gene_list, name = "cell_typeA_score")
+FeaturePlot(object = iri.fb, features = "cell_typeA_score1")
+
+##################MONOCYTE MACROPHAGE ANALYSIS###################
+Idents(iri)<-"SCT_snn_res.0.5"
+monomac<-subset(iri, idents = c("0", "7", "9","10", "12", "17", "19", "22", "34", "37"))
+Idents(monomac) <- "sample"
+DefaultAssay(monomac) <- "RNA"
+monomac <- NormalizeData(monomac)
+all.genes <- rownames(monomac)
+monomac <- ScaleData(monomac, features = all.genes)
+monomac <- FindVariableFeatures(monomac, selection.method = "vst", nfeatures = 2000)
+monomac <- RunPCA(monomac, features = VariableFeatures(object = monomac))
+monomac <- FindNeighbors(monomac, dims = 1:15)
+monomac <- FindClusters(monomac, resolution = c(0.2, 0.4, 0.5, 0.8, 1.0))
+monomac <- RunUMAP(monomac, dims = 1:15)
+
+Idents(monomac)<-"orig.ident"
+monomac.list <- SplitObject(monomac, split.by = "day")
+options(future.globals.maxSize= 891289600)
+monomac.list <- lapply(monomac.list, SCTransform, vars.to.regress = "percent.mt")
+features  <- SelectIntegrationFeatures(monomac.list, nfeatures = 3000)
+monomac.list <- PrepSCTIntegration(monomac.list, anchor.features = features)
+anchors <- FindIntegrationAnchors(monomac.list, normalization.method = "SCT", anchor.features = features)
+monomac.int <- IntegrateData(anchorset = anchors, normalization.method = "SCT", k.weight = 50)
+monomac.int <- RunPCA(monomac.int)
+monomac.int <- RunUMAP(monomac.int, reduction = "pca", dims = 1:10)
+monomac.int <- FindNeighbors(monomac.int, dims = 1:10)
+monomac.int <- FindClusters(monomac.int, dims = 1:10)
+monomac.int <- RunTSNE(object = monomac.int, features = VariableFeatures(object = monomac.int), reduction.key = 'sctSNE_', reduction.name = 'sctsne')
+
+monomac.int2 <- monomac.int
+##Classification based on Travalagani 2020 and Lung Endothelial Atlas (Schupp 2021)
+Idents(monomac.int2) <- "integrated_snn_res.0.8"
+#Alveolar Macrophages
+VlnPlot(monomac.int2, features = c("Marco", "Mrc1", "Chil3", "Ear1"))
+#Classical monocytes
+VlnPlot(monomac.int2, features = c("Ly6c2", "F13a1"))
+#NCM
+VlnPlot(monomac.int2, features = c("Fcgr4", "Adgre4", "Treml4"))
+#Interstitial macrophage
+VlnPlot(monomac.int2, features = c("C1qa", "Trem2", "Pf4"))
+
+monomac.int2<-PrepSCTFindMarkers(monomac.int2, assay = "SCT", verbose = TRUE)
+cluster.markers <- FindMarkers(monomac.int2, ident.1 = 14)
+View(cluster.markers)
+markers <- FindAllMarkers(monomac.int2, only.pos = TRUE)
+write.csv(markers, file = "./monomac.int2_integrated_snn_res.0.8.csv")
+#Cluster2 inflammatory AM (Il18, Ccl6)
+#Cluster12 inflammatory IntMac (Ccl17, Il7r, Ccl22, Ccr7)
+#Cluster17 cDC
+#Cluster21 T cell
+
+#Exclude contaminants (cluster 17- cDC, cluster 21- Tcell)
+monomac.int2<-subset(monomac.int2, idents = c("0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "18", "19", "20"))
+
+#Add metadata
+fun <- function(x) {
+  if (x == "0") {"AM1"} 
+  else if (x == "1") {"AM2"}
+  else if (x == "2") {"AM3"}
+  else if (x == "3") {"CM1"}
+  else if (x == "4") {"AM4"}
+  else if (x == "5") {"NCM"}
+  else if (x == "6") {"AM5"}
+  else if (x == "7") {"IntMac1"}
+  else if (x == "8") {"IntMac2"}
+  else if (x == "9") {"AM6"}
+  else if (x == "10") {"IntMac3"}
+  else if (x == "11") {"AM7"}
+  else if (x == "12") {"IntMac4"}
+  else if (x == "13") {"AM8"}
+  else if (x == "14") {"AM9"}
+  else if (x == "15") {"CM2"}
+  else if (x == "16") {"CM3"}
+  else if (x == "18") {"IntMac5"}
+  else if (x == "19") {"CM4"}
+  else if (x == "20") {"CM5"}}
+monomac.int2$celltype <- mapply(fun, monomac.int2$integrated_snn_res.0.8)
+fun <- function(x) {
+  if (x == "0") {"AM"} 
+  else if (x == "1") {"AM"}
+  else if (x == "2") {"AM"}
+  else if (x == "3") {"CM"}
+  else if (x == "4") {"AM"}
+  else if (x == "5") {"NCM"}
+  else if (x == "6") {"AM"}
+  else if (x == "7") {"IntMac"}
+  else if (x == "8") {"IntMac"}
+  else if (x == "9") {"AM"}
+  else if (x == "10") {"IntMac"}
+  else if (x == "11") {"AM"}
+  else if (x == "12") {"IntMac"}
+  else if (x == "13") {"AM"}
+  else if (x == "14") {"AM"}
+  else if (x == "15") {"CM"}
+  else if (x == "16") {"CM"}
+  else if (x == "18") {"IntMac"}
+  else if (x == "19") {"CM"}
+  else if (x == "20") {"CM"}}
+monomac.int2$celltype.simple <- mapply(fun, monomac.int2$integrated_snn_res.0.8)
+fun <- function(x) {
+  if (x == "0") {"Macrophage"} 
+  else if (x == "1") {"Macrophage"}
+  else if (x == "2") {"Macrophage"}
+  else if (x == "3") {"Monocyte"}
+  else if (x == "4") {"Macrophage"}
+  else if (x == "5") {"Monocyte"}
+  else if (x == "6") {"Macrophage"}
+  else if (x == "7") {"Macrophage"}
+  else if (x == "8") {"Macrophage"}
+  else if (x == "9") {"Macrophage"}
+  else if (x == "10") {"Macrophage"}
+  else if (x == "11") {"Macrophage"}
+  else if (x == "12") {"Macrophage"}
+  else if (x == "13") {"Macrophage"}
+  else if (x == "14") {"Macrophage"}
+  else if (x == "15") {"Monocyte"}
+  else if (x == "16") {"Monocyte"}
+  else if (x == "18") {"Macrophage"}
+  else if (x == "19") {"Monocyte"}
+  else if (x == "20") {"Monocyte"}}
+monomac.int2$celltype.split <- mapply(fun, monomac.int2$integrated_snn_res.0.8)
+Idents(monomac.int2)<-"celltype"
+saveRDS(monomac.int2, "./monomac.int2.rds")
+
+DimPlot(monomac.int2, reduction = "sctsne", label = TRUE, repel = TRUE, order = c("CM5", "CM4", "CM3", "CM2", "CM1", "NCM", "IntMac5", "IntMac4", "IntMac3", "IntMac2", "IntMac1", "AM9", "AM8", "AM7", "AM6", "AM5", "AM4", "AM3", "AM2", "AM1"), pt.size = 1)
+DimPlot(monomac.int2, group.by = "celltype.split", reduction = "sctsne", pt.size = 0.6)+ scale_color_manual(values = c("#F26738", "#43A84F"))
+DimPlot(monomac.int2, group.by = "newday", reduction = "sctsne", pt.size = 0.6)+ scale_color_manual(values = c('#EC2426', "#28B674",'#619CFF', "gold", '#FF61C3'))
+metadata <- monomac.int2@meta.data
+ggplot(metadata, aes(celltype, group = newday)) + 
+  geom_bar(aes(y = ..prop.., fill = factor(..x..)), color = "black", stat="count") + 
+  scale_y_continuous(labels=scales::percent_format(accuracy = 5L))+
+  facet_grid(~newday)+
+  xlab("Cell Type") + ylab("Relative Frequencies") +
+  theme(axis.text.x = element_blank(), axis.ticks = element_blank()) +
+  geom_text(aes(label = scales::percent_format(accuracy = 5L)(..prop..),y= ..prop..), stat= "count", vjust = -.5, hjust = 0.5, size = 6) +
+  theme(text = element_text(size = 30), axis.title.x = element_text(vjust=-0.5),axis.title.y = element_text(vjust=1.5))+
+  theme(plot.title = element_text(hjust = 0.5))+ 
+  scale_fill_discrete(labels=c("CM5", "CM4", "CM3", "CM2", "CM1", "NCM", "IntMac5", "IntMac4", "IntMac3", "IntMac2", "IntMac1", "AM9", "AM8", "AM7", "AM6", "AM5", "AM4", "AM3", "AM2", "AM1")) +
+  labs(fill = "Cell Type")
+Idents(monomac.int2)<-"celltype"
+DimPlot(monomac.int2, label = TRUE, reduction = "sctsne")
+
+DefaultAssay(monomac.int2) <- "SCT"
+expdata <- GetAssayData(monomac.int2)
+Pop1 <- c("S100a9", "S100a8", "Vcan", "Fcna", "Fcnb")
+pops<-list(Pop1)
+z_scores<-NULL
+for (i in 1:length(pops)) {
+  genes <- pops[[i]]
+  zz <- which(tolower(rownames(expdata)) %in% tolower(genes))
+  av <- numeric(ncol(expdata))
+  geneExp <- as.matrix(expdata[zz, ])
+  geneExp <- t(scale(t(geneExp)))
+  geneExp[is.nan(geneExp)] <- 0
+  z_scores <- rbind(z_scores,(av + colSums(geneExp) / length(zz)))}
+monomac.int2@meta.data$pop_z<-z_scores[1,]
+FeaturePlot(monomac.int2, features = "pop_z",pt.size=0.8, reduction = "sctsne", order = TRUE)+scale_color_gradientn(colors=c("#F4EA17", "#F4EA17","#F0852F", "#C63F80","#2D2C7E", "#431B54"), oob=scales::squish, limits=c(-0.5,1.8))
+FeaturePlot(monomac.int2, features = "pop_z",pt.size=0.7, reduction = "sctsne", order = TRUE)+scale_color_gradientn(colors=c("#F4EA17", "#F4EA17", "#ABD03A", "#3AB774", "#2B7F94", "#395A92", "#431B54"), oob=scales::squish, limits=c(-0.5,1.3))
+DefaultAssay(monomac.int2) <- "SCT"
+expdata <- GetAssayData(monomac.int2)
+Pop1 <- c("Il1b", "Nfkb1", "Cxcl2", "Ptgs2")
+pops<-list(Pop1)
+z_scores<-NULL
+for (i in 1:length(pops)) {
+  genes <- pops[[i]]
+  zz <- which(tolower(rownames(expdata)) %in% tolower(genes))
+  av <- numeric(ncol(expdata))
+  geneExp <- as.matrix(expdata[zz, ])
+  geneExp <- t(scale(t(geneExp)))
+  geneExp[is.nan(geneExp)] <- 0
+  z_scores <- rbind(z_scores,(av + colSums(geneExp) / length(zz)))}
+monomac.int2@meta.data$pop_z<-z_scores[1,]
+FeaturePlot(monomac.int2, features = "pop_z",pt.size=0.8, reduction = "sctsne", order = TRUE)+scale_color_gradientn(colors=c("#F4EA17", "#F4EA17","#F0852F", "#C63F80","#2D2C7E", "#431B54"), oob=scales::squish, limits=c(-0.5,1.8))
+FeaturePlot(monomac.int2, features = "pop_z",pt.size=0.7, reduction = "sctsne", order = TRUE)+scale_color_gradientn(colors=c("#F4EA17", "#F4EA17", "#ABD03A", "#3AB774", "#2B7F94", "#395A92", "#431B54"), oob=scales::squish, limits=c(-0.5,1.3))
+DefaultAssay(monomac.int2) <- "SCT"
+expdata <- GetAssayData(monomac.int2)
+Pop1 <- c("Lipa", "Lpl", "Spp1", "Sparc", "Gpc4", "Palld", "Chi3l1", "Ctsk", "Mmp7", "Csf1", "Col22a1", "Siglec15")
+pops<-list(Pop1)
+z_scores<-NULL
+for (i in 1:length(pops)) {
+  genes <- pops[[i]]
+  zz <- which(tolower(rownames(expdata)) %in% tolower(genes))
+  av <- numeric(ncol(expdata))
+  geneExp <- as.matrix(expdata[zz, ])
+  geneExp <- t(scale(t(geneExp)))
+  geneExp[is.nan(geneExp)] <- 0
+  z_scores <- rbind(z_scores,(av + colSums(geneExp) / length(zz)))}
+monomac.int2@meta.data$pop_z<-z_scores[1,]
+FeaturePlot(monomac.int2, features = "pop_z",pt.size=0.8, reduction = "sctsne", order = TRUE)+scale_color_gradientn(colors=c("#F4EA17", "#F4EA17", "#F4EA17","#F0852F", "#C63F80","#2D2C7E", "#431B54"), oob=scales::squish, limits=c(-0.5,1.8))
+FeaturePlot(monomac.int2, features = "pop_z",pt.size=0.7, reduction = "sctsne", order = TRUE)+scale_color_gradientn(colors=c("#F4EA17", "#F4EA17", "#ABD03A", "#3AB774", "#2B7F94", "#395A92", "#431B54"), oob=scales::squish, limits=c(-0.5,1.3))
+
+Idents(monomac.int)<-"newday"
+monomacint2.markers <- FindAllMarkers(monomac.int, only.pos = TRUE, recorrect_umi = FALSE)
+monomacint2.markers  %>%
+  dplyr::filter(avg_log2FC > 1) %>%
+  slice_head(n = 10) %>%
+  ungroup() -> top10
+DoHeatmap(monomac.int, features = monomacint2.markers) + NoLegend()
+
+
+###Comparing with Anakinra results
+anakinra <- readRDS("~/refquery_allmerged_reference.map.rds")
+Idents(anakinra)<-"cell.type"
+levels(anakinra)
+anakinra.monomac.refquery<-subset(anakinra, idents = c("Monocyte/Macrophage"))
+Idents(anakinra.monomac.refquery) <- "sample"
+DefaultAssay(anakinra.monomac.refquery) <- "RNA"
+anakinra.monomac.refquery <- NormalizeData(anakinra.monomac.refquery)
+all.genes <- rownames(anakinra.monomac.refquery)
+anakinra.monomac.refquery <- ScaleData(anakinra.monomac.refquery, features = all.genes)
+anakinra.monomac.refquery <- FindVariableFeatures(anakinra.monomac.refquery, selection.method = "vst", nfeatures = 2000)
+anakinra.monomac.refquery <- RunPCA(anakinra.monomac.refquery, features = VariableFeatures(object = anakinra.monomac.refquery))
+anakinra.monomac.refquery <- FindNeighbors(anakinra.monomac.refquery, dims = 1:15)
+anakinra.monomac.refquery <- FindClusters(anakinra.monomac.refquery, resolution = c(0.1, 0.2, 0.3, 0.4, 0.5))
+anakinra.monomac.refquery <- RunUMAP(anakinra.monomac.refquery, dims = 1:15)
+DefaultAssay(anakinra.monomac.refquery) <- "RNA"
+anakinra.monomac.refquery<-JoinLayers(anakinra.monomac.refquery)
+
+Idents(anakinra.monomac.refquery)<-"orig.ident"
+anakinra.monomac.refquery <- SplitObject(anakinra.monomac.refquery, split.by = "id")
+options(future.globals.maxSize= 891289600)
+anakinra.monomac.refquery.list <- lapply(anakinra.monomac.refquery, SCTransform, vars.to.regress = "percent.mt")
+features  <- SelectIntegrationFeatures(anakinra.monomac.refquery.list, nfeatures = 3000)
+anakinra.monomac.refquery.list <- PrepSCTIntegration(anakinra.monomac.refquery.list, anchor.features = features)
+anchors <- FindIntegrationAnchors(anakinra.monomac.refquery.list, normalization.method = "SCT", anchor.features = features)
+anakinra.monomac.refquery.int <- IntegrateData(anchorset = anchors, normalization.method = "SCT", k.weight = 50)
+anakinra.monomac.refquery.int <- RunPCA(anakinra.monomac.refquery.int)
+anakinra.monomac.refquery.int <- RunUMAP(anakinra.monomac.refquery.int, reduction = "pca", dims = 1:10)
+anakinra.monomac.refquery.int <- FindNeighbors(anakinra.monomac.refquery.int, dims = 1:10)
+anakinra.monomac.refquery.int <- FindClusters(anakinra.monomac.refquery.int, dims = 1:10)
+anakinra.monomac.refquery.int <- RunTSNE(object = anakinra.monomac.refquery.int, features = VariableFeatures(object = anakinra.monomac.refquery.int), reduction.key = 'sctSNE_', reduction.name = 'sctsne')
+saveRDS(anakinra.monomac.refquery.int, "./anakinra.monomac.refquery.int.rds")
+
+
+DimPlot(anakinra.monomac.refquery.int, group.by = "id", reduction = "sctsne", pt.size = 0.6)+ scale_color_manual(values = c("#619CFF","#EF5085"))
+DefaultAssay(anakinra.monomac.refquery.int) <- "SCT"
+expdata <- GetAssayData(anakinra.monomac.refquery.int)
+Pop1 <- c("S100a9", "S100a8", "Vcan", "Fcna", "Fcnb")
+pops<-list(Pop1)
+z_scores<-NULL
+for (i in 1:length(pops)) {
+  genes <- pops[[i]]
+  zz <- which(tolower(rownames(expdata)) %in% tolower(genes))
+  av <- numeric(ncol(expdata))
+  geneExp <- as.matrix(expdata[zz, ])
+  geneExp <- t(scale(t(geneExp)))
+  geneExp[is.nan(geneExp)] <- 0
+  z_scores <- rbind(z_scores,(av + colSums(geneExp) / length(zz)))}
+anakinra.monomac.refquery.int@meta.data$pop_z<-z_scores[1,]
+FeaturePlot(anakinra.monomac.refquery.int, features = "pop_z",pt.size=0.7, reduction = "sctsne", order = TRUE)+scale_color_gradientn(colors=c("#F4EA17", "#F4EA17", "#ABD03A", "#3AB774", "#2B7F94", "#395A92", "#431B54"), oob=scales::squish, limits=c(-0.5,1.3))
+DefaultAssay(anakinra.monomac.refquery.int) <- "SCT"
+expdata <- GetAssayData(anakinra.monomac.refquery.int)
+Pop1 <- c("Il1b", "Nfkb1", "Cxcl2", "Ptgs2")
+pops<-list(Pop1)
+z_scores<-NULL
+for (i in 1:length(pops)) {
+  genes <- pops[[i]]
+  zz <- which(tolower(rownames(expdata)) %in% tolower(genes))
+  av <- numeric(ncol(expdata))
+  geneExp <- as.matrix(expdata[zz, ])
+  geneExp <- t(scale(t(geneExp)))
+  geneExp[is.nan(geneExp)] <- 0
+  z_scores <- rbind(z_scores,(av + colSums(geneExp) / length(zz)))}
+anakinra.monomac.refquery.int@meta.data$pop_z<-z_scores[1,]
+FeaturePlot(anakinra.monomac.refquery.int, features = "pop_z",pt.size=0.7, reduction = "sctsne", order = TRUE)+scale_color_gradientn(colors=c("#F4EA17", "#F4EA17", "#ABD03A", "#3AB774", "#2B7F94", "#395A92", "#431B54"), oob=scales::squish, limits=c(-0.5,1.3))
+DefaultAssay(anakinra.monomac.refquery.int) <- "SCT"
+expdata <- GetAssayData(anakinra.monomac.refquery.int)
+Pop1 <- c("Lipa", "Lpl", "Spp1", "Sparc", "Gpc4", "Palld", "Chi3l1", "Ctsk", "Mmp7", "Csf1", "Col22a1", "Siglec15")
+pops<-list(Pop1)
+z_scores<-NULL
+for (i in 1:length(pops)) {
+  genes <- pops[[i]]z
+  zz <- which(tolower(rownames(expdata)) %in% tolower(genes))
+  av <- numeric(ncol(expdata))
+  geneExp <- as.matrix(expdata[zz, ])
+  geneExp <- t(scale(t(geneExp)))
+  geneExp[is.nan(geneExp)] <- 0
+  z_scores <- rbind(z_scores,(av + colSums(geneExp) / length(zz)))}
+anakinra.monomac.refquery.int@meta.data$pop_z<-z_scores[1,]
+FeaturePlot(anakinra.monomac.refquery.int, features = "pop_z",pt.size=0.7, reduction = "sctsne", order = TRUE)+scale_color_gradientn(colors=c("#F4EA17", "#F4EA17", "#ABD03A", "#3AB774", "#2B7F94", "#395A92", "#431B54"), oob=scales::squish, limits=c(-0.5,1.3))
+
+####################TCELL ANALYSIS##########################
+Idents(iri)<-"SCT_snn_res.0.5"
+DotPlot(iri, features = c("Cd3e", "Cd4", "Cd8a", "Foxp3"))
+VlnPlot(iri, features = c("Cd3e", "Cd4", "Cd8a", "Foxp3"))
+t.cells<-subset(iri, idents = c("5", "11", "13", "27", "30", "33", "35"))
+Idents(t.cells) <- "orig.ident"
+DefaultAssay(t.cells) <- "RNA"
+t.cells <- NormalizeData(t.cells)
+all.genes <- rownames(t.cells)
+t.cells <- ScaleData(t.cells, features = all.genes)
+t.cells <- FindVariableFeatures(t.cells, selection.method = "vst", nfeatures = 2000)
+t.cells <- RunPCA(t.cells, features = VariableFeatures(object = t.cells))
+t.cells <- FindNeighbors(t.cells, dims = 1:15)
+t.cells <- FindClusters(t.cells, resolution = c(0.1, 0.2, 0.3, 0.4, 0.5))
+t.cells <- RunUMAP(t.cells, dims = 1:15)
+DefaultAssay(t.cells) <- "RNA"
+t.cells <- RunHarmony(object = t.cells, assay.use = "RNA", reduction.use = "pca", dims.use = 1:50, group.by.vars = "sample", plot_convergence = TRUE)
+t.cells <- RunUMAP(object = t.cells, assay = "RNA", reduction = "harmony", dims = 1:15)
+t.cells <- FindNeighbors(object = t.cells, assay = "RNA", reduction = "harmony", dims = 1:15)
+t.cells <- FindClusters(t.cells, graph.name = "RNA_snn", algorithm = 3, resolution = c(0.1,0.2,0.3,0.4,0.5), verbose = FALSE)
+Idents(t.cells)<-"RNA_snn_res.0.5"
+ncol(t.cells) #6794
+##Exclude non-T cell clusters
+VlnPlot(t.cells, features = c("Cd3e", "Cd4", "Cd8a", "Foxp3"))
+t.cells <- subset(x = t.cells, idents = c("0", "1", "2", "3", "5", "7", "8", "9", "10"))
+Idents(t.cells) <- "orig.ident"
+DefaultAssay(t.cells) <- "RNA"
+t.cells <- NormalizeData(t.cells)
+all.genes <- rownames(t.cells)
+t.cells <- ScaleData(t.cells, features = all.genes)
+t.cells <- FindVariableFeatures(t.cells, selection.method = "vst", nfeatures = 2000)
+t.cells <- RunPCA(t.cells, features = VariableFeatures(object = t.cells))
+t.cells <- FindNeighbors(t.cells, dims = 1:20)
+t.cells <- FindClusters(t.cells, resolution = c(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7))
+t.cells <- RunUMAP(t.cells, dims = 1:20)
+DefaultAssay(t.cells) <- "RNA"
+ncol(t.cells) 
+
+Idents(t.cells)<-"RNA_snn_res.0.5"
+DimPlot(t.cells, label = FALSE)
+fun <- function(x) {
+  if (x == "0") {"CD4_NaiveCM"} 
+  else if (x == "1") {"CD8_NaiveCM"}
+  else if (x == "2") {"CD4.CD8"}
+  else if (x == "3") {"CD4_NaiveCM"}
+  else if (x == "4") {"Th17"}
+  else if (x == "5") {"CD8_NaiveCM_Irf3"}
+  else if (x == "6") {"CD8_EM"}
+  else if (x == "7") {"Treg"}
+  else if (x == "8") {"CD8_Tpex"}
+  else if (x == "9") {"Th1"}
+  else if (x == "10") {"CD4_Tpex"}}
+t.cells$tcell.type <- mapply(fun, t.cells$RNA_snn_res.0.5)
+Idents(t.cells)<-"tcell.type"
+ncol(t.cells)
+saveRDS(t.cells, "./iri.tcells.rds")
+
+treg<-subset(t.cells, idents = c("Treg"))
+Idents(treg) <- "orig.ident"
+DefaultAssay(treg) <- "RNA"
+treg <- NormalizeData(treg)
+all.genes <- rownames(treg)
+treg <- ScaleData(treg, features = all.genes)
+treg <- FindVariableFeatures(treg, selection.method = "vst", nfeatures = 2000)
+treg <- RunPCA(treg, features = VariableFeatures(object = t.cells))
+treg <- FindNeighbors(treg, dims = 1:15)
+treg <- FindClusters(treg, resolution = c(0.1, 0.2, 0.3, 0.4, 0.5))
+treg <- RunUMAP(treg, dims = 1:15)
+DefaultAssay(treg) <- "RNA"
+treg <- RunHarmony(object = treg, assay.use = "RNA", reduction.use = "pca", dims.use = 1:50, group.by.vars = "sample", plot_convergence = TRUE)
+treg <- RunUMAP(object = treg, assay = "RNA", reduction = "harmony", dims = 1:15)
+treg <- FindNeighbors(object = treg, assay = "RNA", reduction = "harmony", dims = 1:15)
+treg <- FindClusters(treg, graph.name = "RNA_snn", algorithm = 3, resolution = c(0.1,0.2,0.3,0.4,0.5), verbose = FALSE)
+Idents(treg)<-"RNA_snn_res.0.5"
+ncol(treg) 
+saveRDS(treg, "./iri.treg.rds")
+
+c<-DimPlot(treg, label = FALSE)
+c + scale_color_viridis_d()
+
+c<-ggplot(counts, aes(newday, count, fill = RNA_snn_res.0.5)) + geom_bar(stat = 'identity', position = "fill") + geom_col(position = "fill") 
+c+scale_fill_viridis_d()
+
+treg.markers <- FindAllMarkers(treg, only.pos = TRUE)
+treg.markers %>%
+  group_by(cluster) %>%
+  dplyr::filter(avg_log2FC > 1) %>%
+  slice_head(n = 10) %>%
+  ungroup() -> top10
+DoHeatmap(treg, features = top10$gene, disp.min = -2, disp.max = 3)
+write.csv(treg.markers, file = "./treg.markers.csv")
+
+DefaultAssay(treg) <- "SCT"
+expdata <- GetAssayData(treg)
+Pop1 <- c("Il1rl1", "Areg",  "Fgl2", "Cxcl2")
+pops<-list(Pop1)
+z_scores<-NULL
+for (i in 1:length(pops)) {
+  genes <- pops[[i]]
+  zz <- which(tolower(rownames(expdata)) %in% tolower(genes))
+  av <- numeric(ncol(expdata))
+  geneExp <- as.matrix(expdata[zz, ])
+  geneExp <- t(scale(t(geneExp)))
+  geneExp[is.nan(geneExp)] <- 0
+  z_scores <- rbind(z_scores,(av + colSums(geneExp) / length(zz)))}
+treg@meta.data$pop_z<-z_scores[1,]
+FeaturePlot(object=treg, features = "pop_z",pt.size=.3, reduction = "umap") + scale_color_gradientn(colors=c("#cccccc","#cccccc","#22a884ff","#440154ff","#440154ff"), oob=scales::squish, limits=c(0,1.5))
+FeaturePlot(object=treg, features = "pop_z",pt.size=.3, reduction = "umap") + scale_color_gradientn(colors=c("#cccccc","#cccccc","lightpink","darkred","darkred"), oob=scales::squish, limits=c(0,1.5))
+
+#Reference Mapping
+anakinra <- readRDS("~/refquery_allmerged_reference.map.rds")
+Idents(anakinra)<-"cell.type"
+levels(anakinra)
+anakinra.monomac.refquery<-subset(anakinra, idents = c("Monocyte/Macrophage"))
+Idents(anakinra.monomac.refquery) <- "sample"
+DefaultAssay(anakinra.monomac.refquery) <- "RNA"
+anakinra.monomac.refquery <- NormalizeData(anakinra.monomac.refquery)
+all.genes <- rownames(anakinra.monomac.refquery)
+anakinra.monomac.refquery <- ScaleData(anakinra.monomac.refquery, features = all.genes)
+anakinra.monomac.refquery <- FindVariableFeatures(anakinra.monomac.refquery, selection.method = "vst", nfeatures = 2000)
+anakinra.monomac.refquery <- RunPCA(anakinra.monomac.refquery, features = VariableFeatures(object = anakinra.monomac.refquery))
+anakinra.monomac.refquery <- FindNeighbors(anakinra.monomac.refquery, dims = 1:15)
+anakinra.monomac.refquery <- FindClusters(anakinra.monomac.refquery, resolution = c(0.1, 0.2, 0.3, 0.4, 0.5))
+anakinra.monomac.refquery <- RunUMAP(anakinra.monomac.refquery, dims = 1:15)
+DefaultAssay(anakinra.monomac.refquery) <- "RNA"
+anakinra.monomac.refquery<-JoinLayers(anakinra.monomac.refquery)
+
+Idents(anakinra.monomac.refquery)<-"orig.ident"
+anakinra.monomac.refquery <- SplitObject(anakinra.monomac.refquery, split.by = "id")
+options(future.globals.maxSize= 891289600)
+anakinra.monomac.refquery.list <- lapply(anakinra.monomac.refquery, SCTransform, vars.to.regress = "percent.mt")
+features  <- SelectIntegrationFeatures(anakinra.monomac.refquery.list, nfeatures = 3000)
+anakinra.monomac.refquery.list <- PrepSCTIntegration(anakinra.monomac.refquery.list, anchor.features = features)
+anchors <- FindIntegrationAnchors(anakinra.monomac.refquery.list, normalization.method = "SCT", anchor.features = features)
+anakinra.monomac.refquery.int <- IntegrateData(anchorset = anchors, normalization.method = "SCT", k.weight = 50)
+anakinra.monomac.refquery.int <- RunPCA(anakinra.monomac.refquery.int)
+anakinra.monomac.refquery.int <- RunUMAP(anakinra.monomac.refquery.int, reduction = "pca", dims = 1:10)
+anakinra.monomac.refquery.int <- FindNeighbors(anakinra.monomac.refquery.int, dims = 1:10)
+anakinra.monomac.refquery.int <- FindClusters(anakinra.monomac.refquery.int, dims = 1:10)
+anakinra.monomac.refquery.int <- RunTSNE(object = anakinra.monomac.refquery.int, features = VariableFeatures(object = anakinra.monomac.refquery.int), reduction.key = 'sctSNE_', reduction.name = 'sctsne')
+saveRDS(anakinra.monomac.refquery.int, "./anakinra.monomac.refquery.int.rds")
+
+
+DimPlot(anakinra.monomac.refquery.int, group.by = "id", reduction = "sctsne", pt.size = 0.6)+ scale_color_manual(values = c("#619CFF","#EF5085"))
+DefaultAssay(anakinra.monomac.refquery.int) <- "SCT"
+expdata <- GetAssayData(anakinra.monomac.refquery.int)
+Pop1 <- c("S100a9", "S100a8", "Vcan", "Fcna", "Fcnb")
+pops<-list(Pop1)
+z_scores<-NULL
+for (i in 1:length(pops)) {
+  genes <- pops[[i]]
+  zz <- which(tolower(rownames(expdata)) %in% tolower(genes))
+  av <- numeric(ncol(expdata))
+  geneExp <- as.matrix(expdata[zz, ])
+  geneExp <- t(scale(t(geneExp)))
+  geneExp[is.nan(geneExp)] <- 0
+  z_scores <- rbind(z_scores,(av + colSums(geneExp) / length(zz)))}
+anakinra.monomac.refquery.int@meta.data$pop_z<-z_scores[1,]
+FeaturePlot(anakinra.monomac.refquery.int, features = "pop_z",pt.size=0.7, reduction = "sctsne", order = TRUE)+scale_color_gradientn(colors=c("#F4EA17", "#F4EA17", "#ABD03A", "#3AB774", "#2B7F94", "#395A92", "#431B54"), oob=scales::squish, limits=c(-0.5,1.3))
+DefaultAssay(anakinra.monomac.refquery.int) <- "SCT"
+expdata <- GetAssayData(anakinra.monomac.refquery.int)
+Pop1 <- c("Il1b", "Nfkb1", "Cxcl2", "Ptgs2")
+pops<-list(Pop1)
+z_scores<-NULL
+for (i in 1:length(pops)) {
+  genes <- pops[[i]]
+  zz <- which(tolower(rownames(expdata)) %in% tolower(genes))
+  av <- numeric(ncol(expdata))
+  geneExp <- as.matrix(expdata[zz, ])
+  geneExp <- t(scale(t(geneExp)))
+  geneExp[is.nan(geneExp)] <- 0
+  z_scores <- rbind(z_scores,(av + colSums(geneExp) / length(zz)))}
+anakinra.monomac.refquery.int@meta.data$pop_z<-z_scores[1,]
+FeaturePlot(anakinra.monomac.refquery.int, features = "pop_z",pt.size=0.7, reduction = "sctsne", order = TRUE)+scale_color_gradientn(colors=c("#F4EA17", "#F4EA17", "#ABD03A", "#3AB774", "#2B7F94", "#395A92", "#431B54"), oob=scales::squish, limits=c(-0.5,1.3))
+DefaultAssay(anakinra.monomac.refquery.int) <- "SCT"
+expdata <- GetAssayData(anakinra.monomac.refquery.int)
+Pop1 <- c("Lipa", "Lpl", "Spp1", "Sparc", "Gpc4", "Palld", "Chi3l1", "Ctsk", "Mmp7", "Csf1", "Col22a1", "Siglec15")
+pops<-list(Pop1)
+z_scores<-NULL
+for (i in 1:length(pops)) {
+  genes <- pops[[i]]
+  zz <- which(tolower(rownames(expdata)) %in% tolower(genes))
+  av <- numeric(ncol(expdata))
+  geneExp <- as.matrix(expdata[zz, ])
+  geneExp <- t(scale(t(geneExp)))
+  geneExp[is.nan(geneExp)] <- 0
+  z_scores <- rbind(z_scores,(av + colSums(geneExp) / length(zz)))}
+anakinra.monomac.refquery.int@meta.data$pop_z<-z_scores[1,]
+FeaturePlot(anakinra.monomac.refquery.int, features = "pop_z",pt.size=0.7, reduction = "sctsne", order = TRUE)+scale_color_gradientn(colors=c("#F4EA17", "#F4EA17", "#ABD03A", "#3AB774", "#2B7F94", "#395A92", "#431B54"), oob=scales::squish, limits=c(-0.5,1.3))
+
+#################Final Stroma analysis###########################
+fb <- readRDS("~/fb.rds")
+#Adventitial fibroblast
+VlnPlot(fb, features = c("Serpinf1", "Pi16", "Entpd2"))
+#Alveolar fibroblast
+DotPlot(fb, features = c("Fgfr4", "Slc7a10", "Slc38a5"))
+#Smooth Muscle
+DotPlot(fb, features = c("Acta2", "Cnn1", "Tagln"))
+#Myofibroblast
+DotPlot(fb, features = c("Wif1", "Fgf18", "Aspn"))
+#Pericyte
+DotPlot(fb, features = c("Trpc6", "Higd1b", "Vtn"))
+#Mesothelium
+DotPlot(fb, features = c("Msln", "Wt1", "Upk3b"))
+#Mki67+ Mesothelial Progenitors (https://pmc.ncbi.nlm.nih.gov/articles/PMC7704697/#SM1)
+DotPlot(fb, features = c("Mki67", "Top2a", "Hist1h2ap", "Ube2c", "H2afx", "Cks2", "Hmgb2", "Ccnb2"))
+#Lipofibroblast
+VlnPlot(fb, features = c("Col1a1", "Pdgfra", "Lpl", "Apoe")) #(same as above)
+
+fun <- function(x) {
+  if (x == "0") {"0_AlvFB1"} 
+  else if (x == "1") {"9_Meso1"}
+  else if (x == "2") {"1_AlvFB2"}
+  else if (x == "3") {"7_Pericyte"}
+  else if (x == "4") {"91_Meso2"}
+  else if (x == "5") {"4_LipoFB"}
+  else if (x == "6") {"6_MyoFB"}
+  else if (x == "7") {"2_AdvFB1"}
+  else if (x == "8") {"3_AdvFB2"}
+  else if (x == "9") {"5_AdvFB3"}
+  else if (x == "10") {"8_SMC"}
+  else if (x == "11") {"92_MesoProg"}}
+fb$celltype3 <- mapply(fun, fb$SCT_snn_res.0.5)
+Idents(fb) <-"celltype3"
+DimPlot(fb, label = TRUE, order = c("92_MesoProg", "91_Meso2", "9_Meso1","8_SMC","7_Pericyte","6_MyoFB","4_LipoFB","5_AdvFB3","3_AdvFB2","2_AdvFB1", "1_AlvFB2","0_AlvFB1"))
+
+Idents(fb) <-"SCT_snn_res.0.5"
+fb.markers <- FindAllMarkers(fb, only.pos = TRUE)
+fb.markers %>%
+  group_by(cluster) %>%
+  dplyr::filter(avg_log2FC > 1) %>%
+  slice_head(n = 3) %>%
+  ungroup() -> top3
+DoHeatmap(fb, features = top3$gene)
+
+Idents(fb)<-"day"
+fb.ctrl <-subset(fb, idents = "CTRL")
+fb.2hr <-subset(fb, idents = "WT2HR")
+fb.3d <-subset(fb, idents = "WT3D")
+fb.7d <-subset(fb, idents = "WT7D")
+fb.30d <-subset(fb, idents = "WT30D")
+
+VlnPlot(fb.ctrl, features = c("Il1r1"), group.by = "celltype3", pt.size = 0, y.max = 2)
+VlnPlot(fb.2hr, features = c("Has1"), group.by = "celltype3", pt.size = 0, y.max = 3)
+VlnPlot(fb.7d, features = c("Has2"), group.by = "celltype3", pt.size = 0, y.max = 2)
+VlnPlot(fb.2hr, features = c("Has3"), group.by = "celltype3", pt.size = 0, y.max = 1)
+
+features = c("Il1r1", "Has1", "Il6", "Cxcl1", "Cxcl2", "Ccl2", "Ccl7")
+dittoDotPlot(fb, features, group.by = "celltype3", split.by = "newday", split.nrow = 1)+scale_color_gradient2(name = "Relative\nExpression", low = "#ECE832", mid = "#C63F80", high = "#2D2C7E", limits = c(-0.5, 4))+scale_size_continuous(name = "Percent\nExpression", limits = c(0.1,NA)) +scale_y_discrete(limits=rev)
+
+Idents(fb)<-"orig.ident"
+fb.split <- SplitObject(fb, split.by = "day")
+options(future.globals.maxSize= 891289600)
+fb.list <- lapply(fb.split, SCTransform, vars.to.regress = "percent.mt")
+features  <- SelectIntegrationFeatures(fb.list, nfeatures = 3000)
+fb.list <- PrepSCTIntegration(fb.list, anchor.features = features)
+anchors <- FindIntegrationAnchors(fb.list, normalization.method = "SCT", anchor.features = features)
+fb.int <- IntegrateData(anchorset = anchors, normalization.method = "SCT", k.weight = 50)
+fb.int <- RunPCA(fb.int)
+fb.int <- RunUMAP(fb.int, reduction = "pca", dims = 1:10)
+fb.int <- FindNeighbors(fb.int, dims = 1:10)
+fb.int <- FindClusters(fb.int, dims = 1:10)
+fb.int <- RunTSNE(object = fb.int, features = VariableFeatures(object = fb.int), reduction.key = 'sctSNE_', reduction.name = 'sctsne')
+
+DimPlot(fb.int, label = TRUE, group.by = "celltype3")
+FeaturePlot(fb.int, features = c("Il1r1", "Has3"), raster = F, ,pt.size=0.1,min.cutoff = "q0",max.cutoff = "q10", blend = T, cols = c("darkblue", "green", "magenta"), blend.threshold = 0) &DarkTheme() &NoAxes()
+features <- c("Il1r1", "Has1", "Has2", "Has3")
+VlnPlot(iri.moreMetadata, features, stack = TRUE, group.by = "cell.type", flip = TRUE) +theme(legend.position = "none") + ggtitle("Identity on x-axis")+scale_fill_manual(values = c('#02F900', '#FF00FF', 'blue', 'blue', 'blue'))
